@@ -141,6 +141,13 @@ create or replace function public.notify_order_status_change() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare v_title text; v_body text;
 begin
+  if tg_op = 'INSERT' then
+    v_title := 'طلب جديد';
+    v_body := 'وصلك طلب جديد رقم #' || right(new.id::text, 6);
+    insert into public.notifications(user_id,title,body,order_id)
+      select owner_id,v_title,v_body,new.id from public.stores where id=new.store_id;
+    return new;
+  end if;
   if new.status is distinct from old.status then
     v_title := 'تحديث الطلب';
     v_body := 'حالة الطلب #' || right(new.id::text, 6) || ' أصبحت: ' || new.status::text;
@@ -155,6 +162,9 @@ begin
 end $$;
 drop trigger if exists trg_notify_order_status on public.orders;
 create trigger trg_notify_order_status after update of status on public.orders
+for each row execute function public.notify_order_status_change();
+drop trigger if exists trg_notify_new_order on public.orders;
+create trigger trg_notify_new_order after insert on public.orders
 for each row execute function public.notify_order_status_change();
 
 create index if not exists idx_products_store on public.products(store_id);

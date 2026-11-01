@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CircleCheck, ImagePlus, MessageCircle } from 'lucide-react';
 import * as api from '../lib/api';
 import { useQuery } from '../lib/hooks';
@@ -14,13 +14,28 @@ const trialDays = (s: Store, length: number) => (s.trial_started_at ? Math.max(0
 export default function Merchant({ profile, notify, tab, setTab, onProfileChange }: ViewProps & { onProfileChange: () => void }) {
   const store = useQuery(() => api.getMyStore(profile.id), [profile.id], 30000);
   const regions = useQuery(api.listRegions, []);
-  const orders = useQuery(api.listOrders, [], 20000);
+  const orders = useQuery(() => api.listOrders(store.data?.id), [store.data?.id], 20000);
   const trial = useQuery(() => api.getSetting('merchant_trial_days'), []);
   const subscriptionPrice = useQuery(() => api.getSetting('subscription_monthly_price'), []);
   const paymentMethod = useQuery(() => api.getSetting('subscription_payment_method'), []);
   const subscriptionPhone = useQuery(() => api.getSetting('subscription_whatsapp'), []);
   const trialLength = Math.min(90, Math.max(1, Number(trial.data || 30)));
   const s = store.data;
+  const seenNewOrders = useRef<Set<string> | null>(null);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
+  useEffect(() => {
+    if (!orders.data || !s) return;
+    const current = new Set(orders.data.filter((o) => o.status === 'new').map((o) => o.id));
+    if (seenNewOrders.current) {
+      for (const id of current) if (!seenNewOrders.current.has(id)) {
+        const title = 'عندك طلب جديد';
+        const body = 'ادخل التطبيق لمراجعة الطلب والرد عليه.';
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(title, { body, icon: '/logo-192.png', tag: id });
+        else notify(`${title} — ${body}`);
+      }
+    }
+    seenNewOrders.current = current;
+  }, [orders.data, s, notify]);
   const newCount = (orders.data || []).filter((o) => o.status === 'new').length;
   useEffect(() => { document.title = newCount ? `(${newCount}) طلبات جديدة | وصلة` : 'وصلة'; return () => { document.title = 'وصلة'; }; }, [newCount]);
 
@@ -48,6 +63,7 @@ export default function Merchant({ profile, notify, tab, setTab, onProfileChange
         <Stat label="طلبات جديدة" value={newCount} /><Stat label="إجمالي الطلبات" value={(orders.data || []).length} />
         <Stat label="أيام التجربة المتبقية" value={s?.status === 'active' ? trialDays(s, trialLength) : '—'} /><Stat label="حالة المحل" value={storeLabel(s)} />
       </div>
+      {s && <div className="panel device-alert"><div><b>إشعارات الطلبات على الجهاز</b><p className="muted">تظهر حتى لو كنت تستخدم تبويبًا آخر، طالما الموقع مفتوح.</p></div>{notificationPermission === 'granted' ? <span className="status green">مفعلة</span> : notificationPermission === 'unsupported' ? <span className="muted">المتصفح لا يدعمها</span> : <button className="secondary" onClick={async () => { const permission = await Notification.requestPermission(); setNotificationPermission(permission); if (permission === 'granted') notify('تم تفعيل إشعارات الطلبات على هذا الجهاز'); }}>تفعيل الإشعارات</button>}</div>}
       {!s ? <Register profileId={profile.id} regions={regions.data || []} notify={notify} onDone={() => { store.reload(); onProfileChange(); }} /> : (
         <div className="panel">
           <h3>{s.name}</h3>
