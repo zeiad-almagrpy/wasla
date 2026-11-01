@@ -10,10 +10,10 @@ const rpc = async (fn: string, args: Record<string, unknown>) => { ok(await sb.r
 export async function signUp(name: string, phone: string, email: string, password: string, requestedRole: string) {
   const r = await sb.auth.signUp({
     email, password,
-    options: { data: { full_name: name, phone: toIntlPhone(phone), requested_role: requestedRole } },
+    options: { emailRedirectTo: window.location.origin, data: { full_name: name, phone: toIntlPhone(phone), requested_role: requestedRole } },
   });
   if (r.error) throw new Error(r.error.message);
-  if (!r.data.session) await signIn(email, password); // works when "Confirm email" is disabled
+  return { confirmed: Boolean(r.data.session) };
 }
 export async function signIn(email: string, password: string) {
   const r = await sb.auth.signInWithPassword({ email, password });
@@ -35,6 +35,17 @@ export const listNotifications = async (userId: string) =>
   ok(await sb.from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(30)) as { id: string; title: string; body: string; is_read: boolean; created_at: string }[];
 export const markNotificationsRead = async (userId: string) => {
   ok(await sb.from('notifications').update({ is_read: true }).eq('user_id', userId).eq('is_read', false));
+};
+export const listSupportRequests = async (userId: string, admin = false) => {
+  let q = sb.from('support_requests').select('*').order('created_at', { ascending: false }).limit(100);
+  if (!admin) q = q.eq('user_id', userId);
+  return ok(await q);
+};
+export const createSupportRequest = async (userId: string, subject: string, message: string) => {
+  ok(await sb.from('support_requests').insert({ user_id: userId, subject, message }));
+};
+export const updateSupportStatus = async (id: string, status: string) => {
+  ok(await sb.from('support_requests').update({ status }).eq('id', id));
 };
 
 // ---- storage

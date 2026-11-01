@@ -128,6 +128,13 @@ create table if not exists public.notifications (
   title text not null, body text not null, order_id uuid references public.orders(id) on delete cascade,
   is_read boolean not null default false, created_at timestamptz not null default now()
 );
+create table if not exists public.support_requests (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references public.profiles(id) on delete cascade,
+  subject text not null check (char_length(subject) between 3 and 120),
+  message text not null check (char_length(message) between 5 and 3000),
+  status text not null default 'open' check (status in ('open','answered','closed')),
+  created_at timestamptz not null default now()
+);
 create index if not exists idx_notifications_user on public.notifications(user_id, created_at desc);
 create or replace function public.notify_order_status_change() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -185,6 +192,7 @@ alter table public.announcements enable row level security;
 alter table public.platform_settings enable row level security;
 alter table public.admin_audit_log enable row level security;
 alter table public.notifications enable row level security;
+alter table public.support_requests enable row level security;
 
 -- ===== helpers =====
 create or replace function public.is_admin() returns boolean language sql stable security definer set search_path = public as $$
@@ -373,6 +381,12 @@ drop policy if exists "notifications own read" on public.notifications;
 create policy "notifications own read" on public.notifications for select to authenticated using (user_id = auth.uid());
 drop policy if exists "notifications own update" on public.notifications;
 create policy "notifications own update" on public.notifications for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "support own read" on public.support_requests;
+create policy "support own read" on public.support_requests for select to authenticated using (user_id = auth.uid() or public.is_admin());
+drop policy if exists "support own insert" on public.support_requests;
+create policy "support own insert" on public.support_requests for insert to authenticated with check (user_id = auth.uid() and not public.is_blocked());
+drop policy if exists "support admin update" on public.support_requests;
+create policy "support admin update" on public.support_requests for update to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- ===== storage: one public bucket, 1 MB per file, images only, each user writes only inside a folder named after their id =====
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

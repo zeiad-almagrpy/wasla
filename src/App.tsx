@@ -14,11 +14,11 @@ import type { Profile } from './lib/types';
 
 type View = 'customer' | 'merchant' | 'courier' | 'courier_pending' | 'admin';
 const NAV: Record<View, [string, string][]> = {
-  customer: [['home', 'استكشف المحلات'], ['orders', 'طلباتي'], ['requests', 'اطلب اللي مش لاقيه'], ['news', 'أخبار وصلة'], ['cart', 'السلة']],
-  merchant: [['dashboard', 'نظرة عامة'], ['products', 'المنتجات'], ['orders', 'الطلبات'], ['requests', 'طلبات المشترين'], ['subscription', 'الاشتراك']],
-  courier: [['tasks', 'مهام التوصيل'], ['history', 'سجل التوصيل']],
+  customer: [['home', 'استكشف المحلات'], ['orders', 'طلباتي'], ['requests', 'اطلب اللي مش لاقيه'], ['news', 'أخبار وصلة'], ['cart', 'السلة'], ['support', 'تواصل مع الإدارة']],
+  merchant: [['dashboard', 'نظرة عامة'], ['products', 'المنتجات'], ['orders', 'الطلبات'], ['requests', 'طلبات المشترين'], ['subscription', 'الاشتراك'], ['support', 'تواصل مع الإدارة']],
+  courier: [['tasks', 'مهام التوصيل'], ['history', 'سجل التوصيل'], ['support', 'تواصل مع الإدارة']],
   courier_pending: [],
-  admin: [['dashboard', 'نظرة عامة'], ['shops', 'إدارة المحلات'], ['orders', 'كل الطلبات'], ['users', 'المستخدمون'], ['newsAdmin', 'المنشورات'], ['regions', 'المناطق'], ['settings', 'إعدادات المنصة']],
+  admin: [['dashboard', 'نظرة عامة'], ['shops', 'إدارة المحلات'], ['orders', 'كل الطلبات'], ['users', 'المستخدمون'], ['newsAdmin', 'المنشورات'], ['regions', 'المناطق'], ['supportAdmin', 'رسائل الدعم'], ['settings', 'إعدادات المنصة']],
 };
 const ROLE_AR: Record<View, string> = { customer: 'مشتري', merchant: 'صاحب محل', courier: 'مندوب توصيل', courier_pending: 'مندوب (قيد المراجعة)', admin: 'إدارة المنصة' };
 
@@ -30,8 +30,9 @@ export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [recovery, setRecovery] = useState(false);
   useEffect(() => {
-    sb.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = sb.auth.onAuthStateChange((event, s) => { setSession(s); if (event === 'PASSWORD_RECOVERY') setRecovery(true); });
+    let authEventHandled = false;
+    const { data } = sb.auth.onAuthStateChange((event, s) => { authEventHandled = true; setSession(s); if (event === 'PASSWORD_RECOVERY') setRecovery(true); });
+    sb.auth.getSession().then(({ data: sessionData }) => { if (!authEventHandled) setSession(sessionData.session); });
     return () => data.subscription.unsubscribe();
   }, []);
   if (!configured) return <main className="welcome"><div className="welcome-card"><h1>الإعداد غير مكتمل</h1><p className="muted">أضف VITE_SUPABASE_URL و VITE_SUPABASE_ANON_KEY في متغيرات البيئة ثم أعد البناء.</p></div></main>;
@@ -94,14 +95,35 @@ function Shell({ userId }: { userId: string }) {
         <main className="content">
           <div className="page-heading"><div><p className="eyebrow">{ROLE_AR[view]}</p><h1>{title}</h1></div></div>
           {notice && <div className={`toast ${notice.bad ? 'error' : ''}`} role="status">{notice.text}</div>}
-          {view === 'customer' && <Customer {...common} />}
-          {view === 'merchant' && <Merchant {...common} onProfileChange={prof.reload} />}
-          {view === 'courier' && <Courier {...common} />}
-          {view === 'admin' && <Admin {...common} />}
+          {active === 'support' && <SupportPanel userId={profile.id} />}
+          {active === 'supportAdmin' && <SupportPanel userId={profile.id} admin />}
+          {active !== 'support' && active !== 'supportAdmin' && view === 'customer' && <Customer {...common} />}
+          {active !== 'support' && active !== 'supportAdmin' && view === 'merchant' && <Merchant {...common} onProfileChange={prof.reload} />}
+          {active !== 'support' && active !== 'supportAdmin' && view === 'courier' && <Courier {...common} />}
+          {active !== 'support' && active !== 'supportAdmin' && view === 'admin' && <Admin {...common} />}
           {view === 'courier_pending' && <div className="panel"><h3>حسابك قيد المراجعة</h3><p className="muted">سيقوم فريق وصلة بمراجعة بياناتك والتواصل معك. ستظهر لك مهام التوصيل بعد اعتماد حسابك. تتحدث هذه الصفحة تلقائيًا.</p></div>}
           <footer>وصلة © 2026 · وصلة.. بتجمعنا · الدفع نقدًا عند الاستلام · <a href="/terms.html">الشروط</a> · <a href="/privacy.html">الخصوصية</a></footer>
         </main>
       </div>
     </div>
   );
+}
+
+function SupportPanel({ userId, admin = false }: { userId: string; admin?: boolean }) {
+  const q = useQuery(() => api.listSupportRequests(userId, admin), [userId, admin], 30000);
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (e: { preventDefault(): void }) => {
+    e.preventDefault(); setBusy(true); setError('');
+    try { await api.createSupportRequest(userId, subject.trim(), message.trim()); setSubject(''); setMessage(''); await q.reload(); }
+    catch (x) { setError(x instanceof Error ? x.message : 'تعذر إرسال الرسالة'); }
+    finally { setBusy(false); }
+  };
+  const setStatus = async (id: string, status: string) => { await api.updateSupportStatus(id, status); await q.reload(); };
+  return <div className="support-layout">
+    {!admin && <form className="panel stack-form" onSubmit={submit}><h3>تواصل مع إدارة وصلة</h3><p className="muted">اكتب استفسارك وسنراجعه من خلال المنصة.</p><input value={subject} maxLength={120} minLength={3} required placeholder="عنوان الرسالة" onChange={(e) => setSubject(e.target.value)} /><textarea value={message} maxLength={3000} minLength={5} required placeholder="اكتب رسالتك" onChange={(e) => setMessage(e.target.value)} />{error && <div className="toast error">{error}</div>}<button className="primary" disabled={busy}>{busy ? 'جارٍ الإرسال…' : 'إرسال للإدارة'}</button></form>}
+    <section className="panel"><h3>{admin ? 'رسائل الدعم الواردة' : 'رسائلي السابقة'}</h3>{q.loading && !q.data ? <p>جارٍ التحميل…</p> : (q.data || []).length ? (q.data || []).map((item: { id: string; subject: string; message: string; status: string; created_at: string }) => <article className="support-item" key={item.id}><b>{item.subject}</b><p>{item.message}</p><small>الحالة: {item.status} · {new Date(item.created_at).toLocaleString('ar-EG')}</small>{admin && <div className="action-row"><button className="secondary small" onClick={() => void setStatus(item.id, item.status === 'open' ? 'answered' : 'closed')}>{item.status === 'open' ? 'تحديد كمجاب عليها' : 'إغلاق'}</button></div>}</article>) : <p className="muted">لا توجد رسائل بعد.</p>}</section>
+  </div>;
 }

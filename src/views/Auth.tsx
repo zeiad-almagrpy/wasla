@@ -41,7 +41,10 @@ export default function Auth() {
     }
     setBusy(true);
     try {
-      if (mode === 'up') await api.signUp(name.trim(), phone, mail, password, kind);
+      if (mode === 'up') {
+        const result = await api.signUp(name.trim(), phone, mail, password, kind);
+        if (!result.confirmed) setInfo('أنشأنا حسابك. افتح رابط التفعيل الذي أرسلناه لبريدك؛ بعد التفعيل سيعود بك للموقع لتسجيل الدخول.');
+      }
       else await api.signIn(mail, password);
     } catch (x) { setErr(errMsg(x)); }
     finally { setBusy(false); }
