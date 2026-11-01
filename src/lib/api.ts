@@ -119,6 +119,8 @@ export const adminListStores = async () =>
 export const adminListUsers = async () =>
   ok(await sb.from('profiles').select('*').order('created_at', { ascending: false }).limit(300)) as Profile[];
 export const adminSetStoreStatus = (id: string, status: StoreStatus) => rpc('admin_set_store_status', { p_store_id: id, p_status: status });
+export const adminSetSubscription = (id: string, status: 'trial' | 'active' | 'expired', price: number) =>
+  rpc('admin_set_store_subscription', { p_store_id: id, p_status: status, p_monthly_price: price });
 export const adminSetRole = (id: string, role: string) => rpc('admin_set_role', { p_user: id, p_role: role });
 export const adminSetBlocked = (id: string, blocked: boolean) => rpc('admin_set_blocked', { p_user: id, p_blocked: blocked });
 export const addRegion = async (city: string, governorate: string) => { ok(await sb.from('regions').insert({ city, governorate })); };

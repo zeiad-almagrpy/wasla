@@ -18,7 +18,7 @@ const NAV: Record<View, [string, string][]> = {
   merchant: [['dashboard', 'نظرة عامة'], ['products', 'المنتجات'], ['orders', 'الطلبات'], ['requests', 'طلبات المشترين'], ['subscription', 'الاشتراك'], ['support', 'تواصل مع الإدارة']],
   courier: [['tasks', 'مهام التوصيل'], ['history', 'سجل التوصيل'], ['support', 'تواصل مع الإدارة']],
   courier_pending: [],
-  admin: [['dashboard', 'نظرة عامة'], ['shops', 'إدارة المحلات'], ['orders', 'كل الطلبات'], ['users', 'المستخدمون'], ['newsAdmin', 'المنشورات'], ['regions', 'المناطق'], ['supportAdmin', 'رسائل الدعم'], ['settings', 'إعدادات المنصة']],
+  admin: [['dashboard', 'نظرة عامة'], ['shops', 'إدارة المحلات'], ['subscriptions', 'الاشتراكات'], ['orders', 'كل الطلبات'], ['users', 'المستخدمون'], ['newsAdmin', 'المنشورات'], ['regions', 'المناطق'], ['supportAdmin', 'رسائل الدعم'], ['settings', 'إعدادات المنصة']],
 };
 const ROLE_AR: Record<View, string> = { customer: 'مشتري', merchant: 'صاحب محل', courier: 'مندوب توصيل', courier_pending: 'مندوب (قيد المراجعة)', admin: 'إدارة المنصة' };
 

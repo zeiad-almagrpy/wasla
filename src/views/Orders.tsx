@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bike } from 'lucide-react';
 import * as api from '../lib/api';
 import { useQuery } from '../lib/hooks';
-import { MAX_FEE, STATUS_AR, errMsg, fmtDate, money, statusTone } from '../lib/utils';
+import { STATUS_AR, errMsg, fmtDate, money, statusTone } from '../lib/utils';
 import { Empty, Status } from '../components/ui';
 import type { Notify, Order, OrderStatus, Role } from '../lib/types';
 
@@ -10,6 +10,8 @@ const FLOW: OrderStatus[] = ['accepted', 'preparing', 'ready'];
 
 export function OrdersPanel({ role, userId, notify, filter, storeId }: { role: Role; userId: string; notify: Notify; filter?: (o: Order) => boolean; storeId?: string }) {
   const q = useQuery(() => api.listOrders(storeId), [storeId], 15000);
+  const maxFeeQuery = useQuery(() => api.getSetting('max_delivery_fee'), []);
+  const maxFee = Math.min(500, Math.max(0, Number(maxFeeQuery.data || 500)));
   const seen = useRef<Record<string, string>>({});
   useEffect(() => {
     if (!q.data || role !== 'customer') return;
@@ -23,10 +25,10 @@ export function OrdersPanel({ role, userId, notify, filter, storeId }: { role: R
   if (!q.data) return <Empty title="جارٍ التحميل…" />;
   const list = filter ? q.data.filter(filter) : q.data;
   if (!list.length) return <Empty title="لا توجد طلبات" text="ستظهر الطلبات هنا عند توفرها." />;
-  return <div className="order-list">{list.map((o) => <OrderCard key={o.id} o={o} role={role} userId={userId} notify={notify} onChanged={q.reload} />)}</div>;
+  return <div className="order-list">{list.map((o) => <OrderCard key={o.id} o={o} role={role} userId={userId} notify={notify} onChanged={q.reload} maxFee={maxFee} />)}</div>;
 }
 
-function OrderCard({ o, role, userId, notify, onChanged }: { o: Order; role: Role; userId: string; notify: Notify; onChanged: () => Promise<void> }) {
+function OrderCard({ o, role, userId, notify, onChanged, maxFee }: { o: Order; role: Role; userId: string; notify: Notify; onChanged: () => Promise<void>; maxFee: number }) {
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [next, setNext] = useState<OrderStatus>(o.status);
@@ -51,7 +53,7 @@ function OrderCard({ o, role, userId, notify, onChanged }: { o: Order; role: Rol
 
   const sendOffer = () => {
     const fee = money(Number(counter));
-    if (!counter.trim() || !Number.isFinite(fee) || fee < 0 || fee > MAX_FEE) return notify(`اكتب أجرة صحيحة (من 0 إلى ${MAX_FEE} جنيه)`, true);
+    if (!counter.trim() || !Number.isFinite(fee) || fee < 0 || fee > maxFee) return notify(`اكتب أجرة صحيحة (من 0 إلى ${maxFee} جنيه)`, true);
     run(() => api.courierOffer(o.id, fee, reply), fee === o.proposed_delivery_fee ? 'أرسلت موافقتك على الأجرة للمشتري' : 'أرسلت أجرة مقترحة للمشتري');
   };
 
@@ -121,7 +123,7 @@ function OrderCard({ o, role, userId, notify, onChanged }: { o: Order; role: Rol
             <>
               <button className="primary full" disabled={busy} onClick={() => run(() => api.courierOffer(o.id, o.proposed_delivery_fee, 'أوافق على أجرة التوصيل المقترحة.'), 'تم إسناد المهمة لك. تابع تجهيز المحل ثم استلم الطلب.')}>أقبل المهمة ({o.proposed_delivery_fee} ج.م)</button>
               <label className="field-label">أو اقترح أجرة مختلفة (جنيه)</label>
-              <input type="number" inputMode="decimal" min="0" max={MAX_FEE} value={counter} onChange={(e) => setCounter(e.target.value)} />
+              <input type="number" inputMode="decimal" min="0" max={maxFee} value={counter} onChange={(e) => setCounter(e.target.value)} />
               <label className="field-label">رد للمشتري (اختياري)</label>
               <textarea value={reply} maxLength={300} onChange={(e) => setReply(e.target.value)} placeholder="مثلاً: أقدر أوصل مقابل 25 جنيه" />
               <div className="action-row">

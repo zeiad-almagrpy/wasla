@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { MapPin, Search, Store as StoreIcon } from 'lucide-react';
 import * as api from '../lib/api';
 import { useQuery } from '../lib/hooks';
-import { MAX_FEE, errMsg, money } from '../lib/utils';
+import { errMsg, money } from '../lib/utils';
 import { Empty, ProductCard, Thumb } from '../components/ui';
 import { OrdersPanel } from './Orders';
 import { News, Requests } from './Requests';
@@ -12,6 +12,8 @@ export default function Customer({ profile, notify, tab, setTab }: ViewProps) {
   const stores = useQuery(api.listActiveStores, [], 60000);
   const products = useQuery(api.listAvailableProducts, [], 60000);
   const regions = useQuery(api.listRegions, []);
+  const maxFeeQuery = useQuery(() => api.getSetting('max_delivery_fee'), []);
+  const maxFee = Math.min(500, Math.max(0, Number(maxFeeQuery.data || 500)));
   const [cart, setCart] = useState<Record<string, number>>({});
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
@@ -44,7 +46,7 @@ export default function Customer({ profile, notify, tab, setTab }: ViewProps) {
     if (!cartShop) return;
     const f = money(Number(fee));
     if (delivery && !address.trim()) return notify('اكتب عنوان التوصيل', true);
-    if (delivery && (!fee.trim() || !Number.isFinite(f) || f < 0 || f > MAX_FEE)) return notify(`حدد أجرة توصيل صحيحة (من 0 إلى ${MAX_FEE} جنيه)`, true);
+    if (delivery && (!fee.trim() || !Number.isFinite(f) || f < 0 || f > maxFee)) return notify(`حدد أجرة توصيل صحيحة (من 0 إلى ${maxFee} جنيه)`, true);
     setBusy(true);
     try {
       await api.createOrder(cartShop, cartItems.map((i) => ({ product_id: i.p.id, qty: i.qty })), delivery, address.trim(), delivery ? f : 0);
@@ -91,7 +93,7 @@ export default function Customer({ profile, notify, tab, setTab }: ViewProps) {
                   <input value={address} maxLength={300} onChange={(e) => setAddress(e.target.value)} placeholder="الشارع، المنطقة، علامة مميزة" />
                   <p className="muted">حدد ميزانية التوصيل. سيُسند الطلب لمندوب متاح ضمنها، وتظهر لك حالة الطلب هنا.</p>
                   <label className="field-label">أجرة التوصيل المقترحة (جنيه)</label>
-                  <input type="number" inputMode="decimal" min="0" max={MAX_FEE} value={fee} onChange={(e) => setFee(e.target.value)} placeholder="مثلاً 20" />
+                  <input type="number" inputMode="decimal" min="0" max={maxFee} value={fee} onChange={(e) => setFee(e.target.value)} placeholder="مثلاً 20" />
                 </>
               )}
               <div className="summary-total"><span>الإجمالي قبل اعتماد أجرة المندوب</span><b>{money(subtotal + feeNum)} جنيه</b></div>

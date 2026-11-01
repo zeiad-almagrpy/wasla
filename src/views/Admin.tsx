@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ImagePlus, Megaphone } from 'lucide-react';
 import * as api from '../lib/api';
 import { useQuery } from '../lib/hooks';
@@ -16,6 +16,13 @@ export default function Admin({ profile, notify, tab }: ViewProps) {
   const orders = useQuery(api.listOrders, [], 30000);
   const regions = useQuery(api.listRegions, []);
   const news = useQuery(api.listAnnouncements, []);
+  const maxFeeSetting = useQuery(() => api.getSetting('max_delivery_fee'), []);
+  const trialSetting = useQuery(() => api.getSetting('merchant_trial_days'), []);
+  const [maxFee, setMaxFee] = useState('');
+  const [trialDays, setTrialDays] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
+  useEffect(() => { if (maxFeeSetting.data) setMaxFee(maxFeeSetting.data); else if (!maxFee) setMaxFee('500'); }, [maxFeeSetting.data]);
+  useEffect(() => { if (trialSetting.data) setTrialDays(trialSetting.data); else if (!trialDays) setTrialDays('30'); }, [trialSetting.data]);
   const [rg, setRg] = useState({ city: '', governorate: '' });
   const [ad, setAd] = useState({ title: '', body: '' });
   const [file, setFile] = useState<File | null>(null);
@@ -39,6 +46,7 @@ export default function Admin({ profile, notify, tab }: ViewProps) {
       </div>
     );
   }
+  if (tab === 'subscriptions') return <><div className="stats"><Stat label="في الفترة المجانية" value={(stores.data || []).filter((s) => s.subscription_status === 'trial').length} /><Stat label="اشتراكات نشطة" value={(stores.data || []).filter((s) => s.subscription_status === 'active').length} /><Stat label="منتهية" value={(stores.data || []).filter((s) => s.subscription_status === 'expired').length} /></div><div className="panel"><h3>اشتراكات المحلات</h3>{!stores.data ? <Empty title="جارٍ التحميل…" /> : stores.data.filter((s) => s.status === 'active').map((s) => <div className="list-row" key={s.id}><div><b>{s.name}</b><small>{s.profiles?.full_name} · {s.subscription_status === 'trial' ? `تجربة مجانية (${s.trial_started_at ? `${Math.max(0, Number(trialDays || '30') - Math.floor((Date.now()-new Date(s.trial_started_at).getTime())/86400000))} يوم متبقٍ` : 'لم تبدأ'})` : s.subscription_status === 'active' ? `مشترك · ${s.monthly_price || 0} جنيه شهريًا` : 'انتهى الاشتراك'}</small></div><button className="secondary small" onClick={() => { const value = window.prompt('السعر الشهري بالجنيه', String(s.monthly_price || 0)); if (value === null) return; const price = Number(value); if (!Number.isFinite(price) || price < 0) return notify('اكتب سعرًا صحيحًا', true); void act(() => api.adminSetSubscription(s.id,'active',price),stores.reload,'تم تسجيل الاشتراك النشط'); }}>تسجيل اشتراك مدفوع</button><button className="secondary small" onClick={() => void act(() => api.adminSetSubscription(s.id,'trial',Number(s.monthly_price||0)),stores.reload,'تم وضع المحل في الفترة المجانية')}>فترة مجانية</button><button className="secondary small" onClick={() => void act(() => api.adminSetSubscription(s.id,'expired',Number(s.monthly_price||0)),stores.reload,'تم إنهاء الاشتراك')}>إنهاء الاشتراك</button></div>)}</div></>;
   if (tab === 'orders') return <OrdersPanel role="admin" userId={profile.id} notify={notify} />;
   if (tab === 'users') {
     return (
@@ -99,6 +107,7 @@ export default function Admin({ profile, notify, tab }: ViewProps) {
       </>
     );
   }
+  if (tab === 'settings') return <div className="panel"><h3>إعدادات المنصة</h3><p className="muted">تؤثر هذه القيم على الطلبات الجديدة والمحلات المعتمدة.</p><form className="stack-form" onSubmit={async (e) => { e.preventDefault(); const fee = Number(maxFee), days = Number(trialDays); if (!Number.isInteger(fee) || fee < 0 || fee > 500) return notify('حد الأجرة بين 0 و500 جنيه', true); if (!Number.isInteger(days) || days < 1 || days > 90) return notify('فترة التجربة بين يوم و90 يومًا', true); setSavingSettings(true); try { await api.setSetting('max_delivery_fee', String(fee)); await api.setSetting('merchant_trial_days', String(days)); notify('تم حفظ إعدادات المنصة'); await Promise.all([maxFeeSetting.reload(), trialSetting.reload()]); } catch (e) { notify(errMsg(e), true); } finally { setSavingSettings(false); } }}><label className="field-label">الحد الأقصى لأجرة التوصيل (جنيه)</label><input type="number" min="0" max="500" value={maxFee} onChange={(e) => setMaxFee(e.target.value)} required /><label className="field-label">فترة تجربة المحل (يوم)</label><input type="number" min="1" max="90" value={trialDays} onChange={(e) => setTrialDays(e.target.value)} required /><button className="primary" disabled={savingSettings}>{savingSettings ? 'جارٍ الحفظ…' : 'حفظ الإعدادات'}</button></form></div>;
   const o = orders.data || [];
   return (
     <>

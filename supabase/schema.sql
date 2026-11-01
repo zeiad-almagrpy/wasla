@@ -116,6 +116,7 @@ create table if not exists public.announcements (
 create table if not exists public.platform_settings (
   key text primary key, value text not null default '', updated_at timestamptz not null default now()
 );
+insert into public.platform_settings(key,value) values ('max_delivery_fee','500'),('merchant_trial_days','30') on conflict (key) do nothing;
 create table if not exists public.admin_audit_log (
   id uuid primary key default gen_random_uuid(),
   admin_id uuid not null references public.profiles(id),
@@ -420,8 +421,10 @@ end $$;
 
 create or replace function public.create_order(p_store_id uuid, p_items jsonb, p_delivery boolean, p_address text, p_proposed_fee numeric)
 returns uuid language plpgsql security definer set search_path = public as $$
-declare v_me public.profiles; v_order uuid; v_sub numeric(10,2) := 0; v_fee numeric(10,2) := 0; r record;
+declare v_me public.profiles; v_order uuid; v_sub numeric(10,2) := 0; v_fee numeric(10,2) := 0; v_max_fee numeric := 500; r record;
 begin
+  select coalesce(nullif(value,'')::numeric,500) into v_max_fee from public.platform_settings where key='max_delivery_fee';
+  v_max_fee := coalesce(v_max_fee,500);
   select * into v_me from public.profiles where id = auth.uid();
   if not found or v_me.is_blocked or v_me.role <> 'customer' then raise exception 'not allowed'; end if;
   if not exists(select 1 from public.stores where id = p_store_id and status = 'active') then raise exception 'store unavailable'; end if;
@@ -429,7 +432,7 @@ begin
   if (select count(*) from public.orders where customer_id = auth.uid() and created_at > now() - interval '1 hour') >= 20 then raise exception 'too many orders'; end if;
   if p_delivery then
     if p_address is null or char_length(btrim(p_address)) not between 3 and 300 then raise exception 'address required'; end if;
-    if p_proposed_fee is null or p_proposed_fee < 0 or p_proposed_fee > 500 then raise exception 'invalid fee'; end if;
+    if p_proposed_fee is null or p_proposed_fee < 0 or p_proposed_fee > v_max_fee then raise exception 'invalid fee'; end if;
     v_fee := round(p_proposed_fee, 2);
   end if;
   insert into public.orders(customer_id, store_id, address_snapshot, subtotal, proposed_delivery_fee, delivery_required, delivery_fee, total, fee_status)
@@ -478,11 +481,13 @@ end $$;
 
 create or replace function public.courier_offer_fee(p_order_id uuid, p_fee numeric, p_reply text)
 returns void language plpgsql security definer set search_path = public as $$
-declare o public.orders; v_fee numeric(10,2);
+declare o public.orders; v_fee numeric(10,2); v_max_fee numeric := 500;
 begin
+  select coalesce(nullif(value,'')::numeric,500) into v_max_fee from public.platform_settings where key='max_delivery_fee';
+  v_max_fee := coalesce(v_max_fee,500);
   if not public.has_role('courier') or public.is_blocked() then raise exception 'not allowed'; end if;
   if exists(select 1 from public.orders where courier_id = auth.uid() and status not in ('delivered','cancelled')) then raise exception 'active delivery exists'; end if;
-  if p_fee is null or p_fee < 0 or p_fee > 500 then raise exception 'invalid fee'; end if;
+  if p_fee is null or p_fee < 0 or p_fee > v_max_fee then raise exception 'invalid fee'; end if;
   v_fee := round(p_fee, 2);
   select * into o from public.orders where id = p_order_id for update;
   if not found or not o.delivery_required or o.courier_id is not null or o.fee_status <> 'pending'
@@ -572,6 +577,20 @@ begin
   values (auth.uid(), 'store_status', 'store', p_store_id::text, jsonb_build_object('status', p_status));
 end $$;
 
+create or replace function public.admin_set_store_subscription(p_store_id uuid, p_status text, p_monthly_price numeric)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  if p_status not in ('trial','active','expired') or p_monthly_price is null or p_monthly_price < 0 or p_monthly_price > 100000 then
+    raise exception 'invalid subscription';
+  end if;
+  perform set_config('wesla.bypass','1',true);
+  update public.stores set subscription_status=p_status, monthly_price=p_monthly_price where id=p_store_id;
+  if not found then raise exception 'store not found'; end if;
+  insert into public.admin_audit_log(admin_id,action,target_type,target_id,details)
+    values(auth.uid(),'store_subscription','store',p_store_id::text,jsonb_build_object('status',p_status,'monthly_price',p_monthly_price));
+end $$;
+
 create or replace function public.admin_set_role(p_user uuid, p_role public.app_role)
 returns void language plpgsql security definer set search_path = public as $$
 begin
@@ -607,6 +626,7 @@ do $$ declare f text; begin
     'courier_deliver_order(uuid)',
     'courier_update_location(uuid,double precision,double precision)',
     'admin_set_store_status(uuid,public.store_status)',
+    'admin_set_store_subscription(uuid,text,numeric)',
     'admin_set_role(uuid,public.app_role)',
     'admin_set_blocked(uuid,boolean)'] loop
     execute format('revoke all on function public.%s from public, anon', f);

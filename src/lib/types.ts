@@ -10,7 +10,7 @@ export type Region = { id: string; city: string; governorate: string; is_active:
 export type StoreStatus = 'pending' | 'active' | 'paused' | 'rejected';
 export type Store = {
   id: string; owner_id: string; name: string; description: string | null; category: string; address: string | null;
-  region_id: string | null; status: StoreStatus; trial_started_at: string | null; created_at: string;
+  region_id: string | null; status: StoreStatus; trial_started_at: string | null; subscription_status: 'trial' | 'active' | 'expired'; monthly_price: number | null; created_at: string;
   profiles?: { full_name: string; phone: string | null } | null;
 };
 export type Product = {

@@ -9,12 +9,14 @@ import { Requests } from './Requests';
 import type { Store, ViewProps } from '../lib/types';
 
 const storeLabel = (s?: Store | null) => (!s ? 'غير مسجل' : s.status === 'active' ? 'معتمد' : s.status === 'paused' ? 'موقوف' : s.status === 'rejected' ? 'مرفوض' : 'قيد المراجعة');
-const trialDays = (s: Store) => (s.trial_started_at ? Math.max(0, 30 - Math.floor((Date.now() - new Date(s.trial_started_at).getTime()) / 86400000)) : 30);
+const trialDays = (s: Store, length: number) => (s.trial_started_at ? Math.max(0, length - Math.floor((Date.now() - new Date(s.trial_started_at).getTime()) / 86400000)) : length);
 
 export default function Merchant({ profile, notify, tab, setTab, onProfileChange }: ViewProps & { onProfileChange: () => void }) {
   const store = useQuery(() => api.getMyStore(profile.id), [profile.id], 30000);
   const regions = useQuery(api.listRegions, []);
   const orders = useQuery(api.listOrders, [], 20000);
+  const trial = useQuery(() => api.getSetting('merchant_trial_days'), []);
+  const trialLength = Math.min(90, Math.max(1, Number(trial.data || 30)));
   const s = store.data;
   const newCount = (orders.data || []).filter((o) => o.status === 'new').length;
   useEffect(() => { document.title = newCount ? `(${newCount}) طلبات جديدة | وصلة` : 'وصلة'; return () => { document.title = 'وصلة'; }; }, [newCount]);
@@ -28,11 +30,11 @@ export default function Merchant({ profile, notify, tab, setTab, onProfileChange
   if (tab === 'subscription') {
     return (
       <div className="panel subscription">
-        <span className="trial-icon"><CircleCheck /></span><h2>شهر مجاني للمحل</h2>
-        <p>تبدأ الفترة التجريبية من تاريخ اعتماد المحل.</p>
-        <div className="price">0 <small>جنيه خلال الفترة التجريبية</small></div>
-        <p>المتبقي: <b>{s?.status === 'active' ? `${trialDays(s)} يوم` : 'تبدأ بعد اعتماد المحل'}</b></p>
-        <div className="notice-box">سيتم الإعلان عن سعر الاشتراك وشروطه قبل انتهاء الفترة المجانية.</div>
+        <span className="trial-icon"><CircleCheck /></span><h2>{s?.subscription_status === 'active' ? 'اشتراك المحل نشط' : s?.subscription_status === 'expired' ? 'الاشتراك منتهٍ' : 'الفترة المجانية'}</h2>
+        <p>{s?.subscription_status === 'trial' ? 'تبدأ الفترة التجريبية من تاريخ اعتماد المحل.' : 'تواصل مع إدارة وصلة لإدارة حالة الاشتراك.'}</p>
+        <div className="price">{s?.subscription_status === 'active' ? (s.monthly_price || 0) : 0} <small>{s?.subscription_status === 'active' ? 'جنيه شهريًا' : 'جنيه خلال الفترة المجانية'}</small></div>
+        {s?.subscription_status === 'trial' && <p>المتبقي: <b>{s.status === 'active' ? `${trialDays(s, trialLength)} يوم` : 'تبدأ بعد اعتماد المحل'}</b></p>}
+        <div className="notice-box">تُدار حالة الاشتراك حاليًا من إدارة وصلة.</div>
       </div>
     );
   }
@@ -40,7 +42,7 @@ export default function Merchant({ profile, notify, tab, setTab, onProfileChange
     <>
       <div className="stats">
         <Stat label="طلبات جديدة" value={newCount} /><Stat label="إجمالي الطلبات" value={(orders.data || []).length} />
-        <Stat label="أيام التجربة المتبقية" value={s?.status === 'active' ? trialDays(s) : '—'} /><Stat label="حالة المحل" value={storeLabel(s)} />
+        <Stat label="أيام التجربة المتبقية" value={s?.status === 'active' ? trialDays(s, trialLength) : '—'} /><Stat label="حالة المحل" value={storeLabel(s)} />
       </div>
       {!s ? <Register profileId={profile.id} regions={regions.data || []} notify={notify} onDone={() => { store.reload(); onProfileChange(); }} /> : (
         <div className="panel">
