@@ -196,9 +196,16 @@ $$;
 create or replace function public.is_blocked() returns boolean language sql stable security definer set search_path = public as $$
   select coalesce((select p.is_blocked from public.profiles p where p.id = auth.uid()), true);
 $$;
+-- Avoid querying orders directly from its own RLS policy.
+create or replace function public.courier_has_active_order() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists(select 1 from public.orders o where o.courier_id = auth.uid() and o.status not in ('delivered','cancelled'));
+$$;
 grant execute on function public.is_admin() to anon, authenticated;
 grant execute on function public.has_role(public.app_role) to anon, authenticated;
 grant execute on function public.is_blocked() to anon, authenticated;
+revoke all on function public.courier_has_active_order() from public, anon;
+grant execute on function public.courier_has_active_order() to authenticated;
 
 create or replace function public.set_updated_at() returns trigger language plpgsql as $$
 begin new.updated_at = now(); return new; end $$;
@@ -322,7 +329,7 @@ drop policy if exists "orders courier read" on public.orders;
 create policy "orders courier read" on public.orders for select to authenticated using (
   courier_id = auth.uid()
   or (public.has_role('courier') and delivery_required and courier_id is null and status in ('accepted','preparing','ready')
-      and not exists(select 1 from public.orders active where active.courier_id = auth.uid() and active.status not in ('delivered','cancelled'))
+      and not public.courier_has_active_order()
       and not exists(select 1 from public.order_declines d where d.order_id = id and d.courier_id = auth.uid())));
 drop policy if exists "orders admin read" on public.orders;
 create policy "orders admin read" on public.orders for select to authenticated using (public.is_admin());

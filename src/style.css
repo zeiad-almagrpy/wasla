@@ -39,3 +39,24 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .tracking-map{display:block;width:100%;height:280px;border:0;border-radius:12px;background:#eef4f0;margin-top:10px}
 @media(max-width:600px){.tracking-map{height:230px}}
 .notification-button{position:relative}.notification-button i{position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:#d65b48;border:1px solid white}.notification-panel{position:fixed;z-index:20;top:82px;left:5%;width:min(380px,90vw);max-height:70vh;overflow:auto;background:white;border:1px solid #e3ebe6;border-radius:16px;padding:14px;box-shadow:0 12px 36px #163d3025}.notification-panel header{display:flex;align-items:center;justify-content:space-between}.notification-panel article{padding:12px 4px;border-bottom:1px solid #edf1ee}.notification-panel article p{margin:5px 0;font-size:13px}.notification-panel article small{color:#829188;font-size:11px}
+/* Wide-screen composition: use the viewport, then constrain only reading-heavy sections. */
+@media (min-width: 851px) {
+  .app-shell{width:100%;}
+  .layout{width:min(100%,1920px);max-width:1920px;grid-template-columns:clamp(230px,17vw,300px) minmax(0,1fr);margin-inline:auto;}
+  .sidebar{position:sticky;top:76px;height:calc(100vh - 76px);overflow-y:auto;align-self:start;}
+  .content{max-width:none;width:100%;margin:0;padding:clamp(28px,3vw,56px) clamp(28px,4vw,76px);}
+  .page-heading,.content>section,.content>.panel,.content>.stats,.content>.shop-grid,.content>.product-grid,.content>.order-list,.content>.request-feed,.content>.announcement-grid{max-width:1500px;margin-inline:auto;}
+  .page-heading{margin-bottom:28px;}
+  .shop-grid{grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;}
+  .product-grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px;}
+  .stats{grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;}
+  .panel{padding:clamp(24px,2vw,36px);}
+  .order-list{grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:18px;}
+  .order-card{padding:22px;}
+}
+@media (min-width:1600px){
+  .hero{min-height:230px;padding:44px 52px;}
+  .product-photo{height:175px;}
+  .stat-card{padding:24px;}
+  .stat-card b{font-size:34px;}
+}
