@@ -76,10 +76,9 @@ function OrderCard({ o, role, userId, notify, onChanged, maxFee }: { o: Order; r
         <section className="track-box" aria-label="تتبع الطلب">
           <b>تتبع الطلب</b>
           <div className="track-steps">
-            {(['new','accepted','preparing','ready','with_courier','delivered'] as OrderStatus[]).map((step) => {
-              const pos = ['new','accepted','preparing','ready','with_courier','delivered'].indexOf(o.status);
-              const current = ['new','accepted','preparing','ready','with_courier','delivered'].indexOf(step);
-              return <span key={step} className={current <= pos ? 'done' : ''}>{STATUS_AR[step]}</span>;
+            {(['new','ready','with_courier','delivered'] as OrderStatus[]).map((step, index) => {
+              const progress = o.status === 'delivered' ? 3 : o.status === 'with_courier' ? 2 : o.status === 'ready' ? 1 : 0;
+              return <span key={step} className={index <= progress ? 'done' : ''}>{STATUS_AR[step]}</span>;
             })}
           </div>
           {o.status === 'with_courier' && (o.courier_lat != null && o.courier_lng != null
@@ -96,11 +95,14 @@ function OrderCard({ o, role, userId, notify, onChanged, maxFee }: { o: Order; r
         </div>
       )}
 
-      {role === 'merchant' && o.status === 'new' && (
+      {role === 'merchant' && o.status === 'new' && o.delivery_required && (
         <div className="action-row">
-          <button className="primary" disabled={busy} onClick={() => run(() => api.merchantSetStatus(o.id, 'accepted'), 'تم قبول الطلب. حدّث الحالة عند التجهيز.')}>قبول الطلب</button>
+          <button className="primary" disabled={busy} onClick={() => run(() => api.merchantSetStatus(o.id, 'ready'), 'تم قبول الطلب وأصبح جاهزًا للمندوب.')}>قبول وتجهيز الطلب</button>
           <button className="secondary" disabled={busy} onClick={() => run(() => api.merchantSetStatus(o.id, 'cancelled'), 'تم رفض الطلب')}>رفض الطلب</button>
         </div>
+      )}
+      {role === 'merchant' && o.status === 'new' && !o.delivery_required && (
+        <div className="action-row"><button className="primary" disabled={busy} onClick={() => run(() => api.merchantSetStatus(o.id, 'accepted'), 'تم قبول الطلب. حدّثه عند التجهيز.')}>قبول الطلب</button><button className="secondary" disabled={busy} onClick={() => run(() => api.merchantSetStatus(o.id, 'cancelled'), 'تم رفض الطلب')}>رفض الطلب</button></div>
       )}
       {role === 'merchant' && inFlow && (
         <div className="action-row">
@@ -161,6 +163,9 @@ function OrderCard({ o, role, userId, notify, onChanged, maxFee }: { o: Order; r
         <div className="action-row">
           <button className="secondary" disabled={busy} onClick={() => { if (confirm('إلغاء الطلب؟')) run(() => api.customerCancel(o.id), 'تم إلغاء الطلب'); }}>إلغاء الطلب</button>
         </div>
+      )}
+      {role === 'customer' && ['with_courier','delivered'].includes(o.status) && o.order_courier_contacts?.courier_phone && (
+        <div className="notice-box"><b>استلم المندوب طلبك من المحل.</b><p>المندوب: {o.order_courier_contacts.courier_name} · <a href={`tel:${o.order_courier_contacts.courier_phone}`}>{o.order_courier_contacts.courier_phone}</a></p></div>
       )}
       {role === 'customer' && <div className="order-foot"><span>أجرة التوصيل: {o.delivery_required ? feeNow : 0} ج.م</span><strong>الإجمالي: {o.total} ج.م</strong></div>}
     </div>

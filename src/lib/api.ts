@@ -75,7 +75,7 @@ export const deleteProduct = async (id: string) => { ok(await sb.from('products'
 
 // ---- orders (all writes are server-side functions)
 export const listOrders = async (storeId?: string) => {
-  let q = sb.from('orders').select('*, order_items(*), stores(name,address), order_contacts(customer_name,customer_phone)');
+  let q = sb.from('orders').select('*, order_items(*), stores(name,address), order_contacts(customer_name,customer_phone), order_courier_contacts(courier_name,courier_phone)');
   if (storeId) q = q.eq('store_id', storeId);
   return ok(await q.order('created_at', { ascending: false }).limit(150)) as Order[];
 };

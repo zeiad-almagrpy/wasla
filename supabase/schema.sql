@@ -83,6 +83,10 @@ create table if not exists public.order_contacts (
   order_id uuid primary key references public.orders(id) on delete cascade,
   customer_name text not null, customer_phone text not null
 );
+create table if not exists public.order_courier_contacts (
+  order_id uuid primary key references public.orders(id) on delete cascade,
+  courier_name text not null, courier_phone text not null
+);
 create table if not exists public.order_declines (
   order_id uuid not null references public.orders(id) on delete cascade,
   courier_id uuid not null references public.profiles(id) on delete cascade,
@@ -203,6 +207,7 @@ alter table public.announcements enable row level security;
 alter table public.platform_settings enable row level security;
 alter table public.admin_audit_log enable row level security;
 alter table public.notifications enable row level security;
+alter table public.order_courier_contacts enable row level security;
 alter table public.support_requests enable row level security;
 
 -- ===== helpers =====
@@ -360,6 +365,9 @@ create policy "order contacts read" on public.order_contacts for select to authe
     select 1 from public.orders o left join public.stores s on s.id = o.store_id
     where o.id = order_id and (o.customer_id = auth.uid() or s.owner_id = auth.uid()
       or (o.courier_id = auth.uid() and o.fee_status = 'accepted'))));
+drop policy if exists "courier contact customer read" on public.order_courier_contacts;
+create policy "courier contact customer read" on public.order_courier_contacts for select to authenticated using (
+  exists(select 1 from public.orders o where o.id=order_id and o.customer_id=auth.uid() and o.status in ('with_courier','delivered') and o.courier_id is not null));
 drop policy if exists "order declines own" on public.order_declines;
 create policy "order declines own" on public.order_declines for select to authenticated using (courier_id = auth.uid());
 
@@ -472,6 +480,7 @@ begin
   if not found then raise exception 'order not found'; end if;
   ok := (p_status = 'cancelled' and o.status in ('new','accepted','preparing','ready'))
      or (o.status = 'new' and p_status = 'accepted')
+     or (o.status = 'new' and p_status = 'ready')
      or (o.status = 'accepted' and p_status in ('preparing','ready'))
      or (o.status = 'preparing' and p_status = 'ready')
      or (o.status = 'ready' and p_status = 'delivered' and not o.delivery_required);
@@ -508,6 +517,9 @@ begin
   update public.orders set courier_id = auth.uid(), courier_proposed_fee = v_fee, courier_reply = left(coalesce(p_reply, ''), 300),
          fee_status = case when v_fee = o.proposed_delivery_fee then 'accepted' else 'countered' end,
          delivery_fee = v_fee, total = o.subtotal + v_fee where id = o.id;
+  insert into public.order_courier_contacts(order_id,courier_name,courier_phone)
+    select o.id,p.full_name,coalesce(p.phone,'') from public.profiles p where p.id=auth.uid()
+    on conflict(order_id) do update set courier_name=excluded.courier_name,courier_phone=excluded.courier_phone;
 end $$;
 
 create or replace function public.courier_decline_order(p_order_id uuid)
@@ -522,6 +534,7 @@ begin
   end if;
   insert into public.order_declines(order_id, courier_id) values (o.id, auth.uid()) on conflict do nothing;
   if o.courier_id = auth.uid() then
+    delete from public.order_courier_contacts where order_id=o.id;
     update public.orders set courier_id = null, courier_proposed_fee = null, courier_reply = null, fee_status = 'pending',
            delivery_fee = o.proposed_delivery_fee, total = o.subtotal + o.proposed_delivery_fee where id = o.id;
   end if;
@@ -539,6 +552,7 @@ begin
     update public.orders set fee_status = 'accepted' where id = o.id;
   else
     insert into public.order_declines(order_id, courier_id) values (o.id, o.courier_id) on conflict do nothing;
+    delete from public.order_courier_contacts where order_id=o.id;
     update public.orders set courier_id = null, courier_proposed_fee = null, courier_reply = null, fee_status = 'pending',
            delivery_fee = o.proposed_delivery_fee, total = o.subtotal + o.proposed_delivery_fee where id = o.id;
   end if;
@@ -565,6 +579,8 @@ begin
   if o.status <> 'with_courier' then raise exception 'invalid transition'; end if;
   update public.orders set status = 'delivered', courier_lat = null, courier_lng = null where id = o.id;
 end $$;
+
+drop function if exists public.customer_confirm_received(uuid);
 
 create or replace function public.courier_update_location(p_order_id uuid, p_lat double precision, p_lng double precision)
 returns void language plpgsql security definer set search_path = public as $$

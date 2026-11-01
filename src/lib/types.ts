@@ -30,6 +30,7 @@ export type Order = {
   courier_lat?: number | null; courier_lng?: number | null;
   stores: { name: string; address: string | null } | null;
   order_contacts: { customer_name: string; customer_phone: string } | null;
+  order_courier_contacts?: { courier_name: string; courier_phone: string } | null;
 };
 export type Comment = { id: string; user_id: string; author_name: string; author_role: string; body: string; created_at: string };
 export type Post = {
