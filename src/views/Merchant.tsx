@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { CircleCheck, ImagePlus } from 'lucide-react';
+import { CircleCheck, ImagePlus, MessageCircle } from 'lucide-react';
 import * as api from '../lib/api';
 import { useQuery } from '../lib/hooks';
-import { errMsg } from '../lib/utils';
+import { errMsg, toIntlPhone } from '../lib/utils';
 import { Empty, Stat, Status, Thumb } from '../components/ui';
 import { OrdersPanel } from './Orders';
 import { Requests } from './Requests';
@@ -16,6 +16,9 @@ export default function Merchant({ profile, notify, tab, setTab, onProfileChange
   const regions = useQuery(api.listRegions, []);
   const orders = useQuery(api.listOrders, [], 20000);
   const trial = useQuery(() => api.getSetting('merchant_trial_days'), []);
+  const subscriptionPrice = useQuery(() => api.getSetting('subscription_monthly_price'), []);
+  const paymentMethod = useQuery(() => api.getSetting('subscription_payment_method'), []);
+  const subscriptionPhone = useQuery(() => api.getSetting('subscription_whatsapp'), []);
   const trialLength = Math.min(90, Math.max(1, Number(trial.data || 30)));
   const s = store.data;
   const newCount = (orders.data || []).filter((o) => o.status === 'new').length;
@@ -32,9 +35,10 @@ export default function Merchant({ profile, notify, tab, setTab, onProfileChange
       <div className="panel subscription">
         <span className="trial-icon"><CircleCheck /></span><h2>{s?.subscription_status === 'active' ? 'اشتراك المحل نشط' : s?.subscription_status === 'expired' ? 'الاشتراك منتهٍ' : 'الفترة المجانية'}</h2>
         <p>{s?.subscription_status === 'trial' ? 'تبدأ الفترة التجريبية من تاريخ اعتماد المحل.' : 'تواصل مع إدارة وصلة لإدارة حالة الاشتراك.'}</p>
-        <div className="price">{s?.subscription_status === 'active' ? (s.monthly_price || 0) : 0} <small>{s?.subscription_status === 'active' ? 'جنيه شهريًا' : 'جنيه خلال الفترة المجانية'}</small></div>
+        <div className="price">{s?.subscription_status === 'active' ? (s.monthly_price || Number(subscriptionPrice.data) || 0) : s?.subscription_status === 'expired' ? (Number(subscriptionPrice.data) || 0) : 0} <small>{s?.subscription_status === 'trial' ? 'جنيه خلال الفترة المجانية' : 'جنيه شهريًا'}</small></div>
         {s?.subscription_status === 'trial' && <p>المتبقي: <b>{s.status === 'active' ? `${trialDays(s, trialLength)} يوم` : 'تبدأ بعد اعتماد المحل'}</b></p>}
-        <div className="notice-box">تُدار حالة الاشتراك حاليًا من إدارة وصلة.</div>
+        {s?.subscription_status !== 'trial' && paymentMethod.data && <div className="notice-box"><b>طريقة الدفع:</b><br />{paymentMethod.data}</div>}
+        {toIntlPhone(subscriptionPhone.data || '') ? <a className="primary wa-link" target="_blank" rel="noreferrer" href={`https://wa.me/${toIntlPhone(subscriptionPhone.data || '')}?text=${encodeURIComponent(`مرحبًا، بخصوص اشتراك محل ${s?.name || ''} على منصة وصلة.`)}`}><MessageCircle size={18} /> تواصل بخصوص الاشتراك عبر واتساب</a> : <div className="notice-box">للاستفسار عن الاشتراك، تواصل مع الإدارة من صفحة «تواصل مع الإدارة».</div>}
       </div>
     );
   }

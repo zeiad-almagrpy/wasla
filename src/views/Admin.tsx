@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ImagePlus, Megaphone } from 'lucide-react';
 import * as api from '../lib/api';
 import { useQuery } from '../lib/hooks';
-import { errMsg, fmtDate } from '../lib/utils';
+import { errMsg, fmtDate, toIntlPhone } from '../lib/utils';
 import { Empty, Stat, Status } from '../components/ui';
 import { OrdersPanel } from './Orders';
 import { Requests } from './Requests';
@@ -18,11 +18,20 @@ export default function Admin({ profile, notify, tab }: ViewProps) {
   const news = useQuery(api.listAnnouncements, []);
   const maxFeeSetting = useQuery(() => api.getSetting('max_delivery_fee'), []);
   const trialSetting = useQuery(() => api.getSetting('merchant_trial_days'), []);
+  const subscriptionPriceSetting = useQuery(() => api.getSetting('subscription_monthly_price'), []);
+  const paymentMethodSetting = useQuery(() => api.getSetting('subscription_payment_method'), []);
+  const subscriptionPhoneSetting = useQuery(() => api.getSetting('subscription_whatsapp'), []);
   const [maxFee, setMaxFee] = useState('');
   const [trialDays, setTrialDays] = useState('');
+  const [subscriptionPrice, setSubscriptionPrice] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [subscriptionPhone, setSubscriptionPhone] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   useEffect(() => { if (maxFeeSetting.data) setMaxFee(maxFeeSetting.data); else if (!maxFee) setMaxFee('500'); }, [maxFeeSetting.data]);
   useEffect(() => { if (trialSetting.data) setTrialDays(trialSetting.data); else if (!trialDays) setTrialDays('30'); }, [trialSetting.data]);
+  useEffect(() => { if (subscriptionPriceSetting.data) setSubscriptionPrice(subscriptionPriceSetting.data); }, [subscriptionPriceSetting.data]);
+  useEffect(() => { if (paymentMethodSetting.data) setPaymentMethod(paymentMethodSetting.data); }, [paymentMethodSetting.data]);
+  useEffect(() => { if (subscriptionPhoneSetting.data) setSubscriptionPhone(subscriptionPhoneSetting.data); }, [subscriptionPhoneSetting.data]);
   const [rg, setRg] = useState({ city: '', governorate: '' });
   const [ad, setAd] = useState({ title: '', body: '' });
   const [file, setFile] = useState<File | null>(null);
@@ -107,7 +116,7 @@ export default function Admin({ profile, notify, tab }: ViewProps) {
       </>
     );
   }
-  if (tab === 'settings') return <div className="panel"><h3>إعدادات المنصة</h3><p className="muted">تؤثر هذه القيم على الطلبات الجديدة والمحلات المعتمدة.</p><form className="stack-form" onSubmit={async (e) => { e.preventDefault(); const fee = Number(maxFee), days = Number(trialDays); if (!Number.isInteger(fee) || fee < 0 || fee > 500) return notify('حد الأجرة بين 0 و500 جنيه', true); if (!Number.isInteger(days) || days < 1 || days > 90) return notify('فترة التجربة بين يوم و90 يومًا', true); setSavingSettings(true); try { await api.setSetting('max_delivery_fee', String(fee)); await api.setSetting('merchant_trial_days', String(days)); notify('تم حفظ إعدادات المنصة'); await Promise.all([maxFeeSetting.reload(), trialSetting.reload()]); } catch (e) { notify(errMsg(e), true); } finally { setSavingSettings(false); } }}><label className="field-label">الحد الأقصى لأجرة التوصيل (جنيه)</label><input type="number" min="0" max="500" value={maxFee} onChange={(e) => setMaxFee(e.target.value)} required /><label className="field-label">فترة تجربة المحل (يوم)</label><input type="number" min="1" max="90" value={trialDays} onChange={(e) => setTrialDays(e.target.value)} required /><button className="primary" disabled={savingSettings}>{savingSettings ? 'جارٍ الحفظ…' : 'حفظ الإعدادات'}</button></form></div>;
+  if (tab === 'settings') return <div className="panel"><h3>إعدادات المنصة</h3><p className="muted">إعدادات الطلبات واشتراك المحلات.</p><form className="stack-form" onSubmit={async (e) => { e.preventDefault(); const fee = Number(maxFee), days = Number(trialDays), price = Number(subscriptionPrice); if (!Number.isInteger(fee) || fee < 0 || fee > 500) return notify('حد الأجرة بين 0 و500 جنيه', true); if (!Number.isInteger(days) || days < 1 || days > 90) return notify('فترة التجربة بين يوم و90 يومًا', true); if (!Number.isFinite(price) || price < 0 || price > 100000) return notify('اكتب سعر اشتراك صحيحًا', true); const phone = toIntlPhone(subscriptionPhone); if (subscriptionPhone.trim() && !phone) return notify('رقم واتساب غير صحيح', true); setSavingSettings(true); try { await Promise.all([api.setSetting('max_delivery_fee', String(fee)), api.setSetting('merchant_trial_days', String(days)), api.setSetting('subscription_monthly_price', String(price)), api.setSetting('subscription_payment_method', paymentMethod.trim()), api.setSetting('subscription_whatsapp', phone)]); notify('تم حفظ إعدادات المنصة والاشتراك'); await Promise.all([maxFeeSetting.reload(), trialSetting.reload(), subscriptionPriceSetting.reload(), paymentMethodSetting.reload(), subscriptionPhoneSetting.reload()]); } catch (e) { notify(errMsg(e), true); } finally { setSavingSettings(false); } }}><label className="field-label">الحد الأقصى لأجرة التوصيل (جنيه)</label><input type="number" min="0" max="500" value={maxFee} onChange={(e) => setMaxFee(e.target.value)} required /><label className="field-label">فترة تجربة المحل (يوم)</label><input type="number" min="1" max="90" value={trialDays} onChange={(e) => setTrialDays(e.target.value)} required /><hr /><h3>اشتراك المحلات</h3><label className="field-label">سعر الاشتراك الشهري (جنيه)</label><input type="number" min="0" max="100000" value={subscriptionPrice} onChange={(e) => setSubscriptionPrice(e.target.value)} required /><label className="field-label">طريقة الدفع والتعليمات</label><textarea value={paymentMethod} maxLength={1000} placeholder="مثال: تحويل إنستاباي على ... ثم أرسل إيصال التحويل للإدارة" onChange={(e) => setPaymentMethod(e.target.value)} /><label className="field-label">رقم واتساب للاستفسار عن الاشتراك</label><input type="tel" value={subscriptionPhone} placeholder="01012345678" onChange={(e) => setSubscriptionPhone(e.target.value)} /><button className="primary" disabled={savingSettings}>{savingSettings ? 'جارٍ الحفظ…' : 'حفظ الإعدادات'}</button></form></div>;
   const o = orders.data || [];
   return (
     <>
