@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { CircleCheck, ImagePlus, MessageCircle } from 'lucide-react';
+import { CircleCheck, ImagePlus } from 'lucide-react';
 import * as api from '../lib/api';
 import { useQuery } from '../lib/hooks';
-import { errMsg, toIntlPhone, waLink } from '../lib/utils';
+import { errMsg } from '../lib/utils';
 import { Empty, Stat, Status, Thumb } from '../components/ui';
 import { OrdersPanel } from './Orders';
 import { Requests } from './Requests';
@@ -15,7 +15,6 @@ export default function Merchant({ profile, notify, tab, setTab, onProfileChange
   const store = useQuery(() => api.getMyStore(profile.id), [profile.id], 30000);
   const regions = useQuery(api.listRegions, []);
   const orders = useQuery(api.listOrders, [], 20000);
-  const support = useQuery(() => api.getSetting('support_whatsapp'), []);
   const s = store.data;
   const newCount = (orders.data || []).filter((o) => o.status === 'new').length;
   useEffect(() => { document.title = newCount ? `(${newCount}) طلبات جديدة | وصلة` : 'وصلة'; return () => { document.title = 'وصلة'; }; }, [newCount]);
@@ -23,7 +22,7 @@ export default function Merchant({ profile, notify, tab, setTab, onProfileChange
   if (store.loading && !s) return <Empty title="جارٍ التحميل…" />;
   if (!s && tab !== 'dashboard') return <Empty title="سجّل محلك أولًا" text="بعد إنشاء المحل وإرساله للمراجعة ستتمكن من استخدام هذه الصفحة." />;
 
-  if (tab === 'orders') return <OrdersPanel role="merchant" userId={profile.id} notify={notify} />;
+  if (tab === 'orders') return <OrdersPanel role="merchant" userId={profile.id} notify={notify} storeId={s?.id} />;
   if (tab === 'requests') return s?.status === 'active' ? <Requests role="merchant" userId={profile.id} notify={notify} canPost={false} /> : <Empty title="فعّل محلك أولًا" text="يمكنك الرد على طلبات المشترين بعد اعتماد المحل." />;
   if (tab === 'products' && s) return <Products store={s} userId={profile.id} notify={notify} />;
   if (tab === 'subscription') {
@@ -37,15 +36,6 @@ export default function Merchant({ profile, notify, tab, setTab, onProfileChange
       </div>
     );
   }
-  if (tab === 'support') {
-    return (
-      <div className="panel">
-        <h3>تواصل مع إدارة وصلة</h3><p className="muted">للاستفسار عن تفعيل المحل أو الاشتراك أو الدعم الفني.</p>
-        {toIntlPhone(support.data || '') ? <a className="primary wa-link" target="_blank" rel="noreferrer" href={waLink(support.data || '', `مرحبًا، أنا ${profile.full_name} صاحب محل على وصلة وأحتاج إلى المساعدة.`)}><MessageCircle /> تواصل عبر واتساب</a> : <div className="notice-box">رقم واتساب الدعم لم يضف بعد.</div>}
-      </div>
-    );
-  }
-
   return (
     <>
       <div className="stats">
@@ -65,14 +55,12 @@ export default function Merchant({ profile, notify, tab, setTab, onProfileChange
 }
 
 function Register({ regions, notify, onDone }: { profileId: string; regions: { id: string; city: string }[]; notify: ViewProps['notify']; onDone: () => void }) {
-  const [v, setV] = useState({ name: '', category: 'بقالة', whatsapp: '', description: '', address: '', regionId: '' });
+  const [v, setV] = useState({ name: '', category: 'بقالة', description: '', address: '', regionId: '' });
   const [busy, setBusy] = useState(false);
   const submit = async (e: { preventDefault(): void }) => {
     e.preventDefault();
-    const wa = toIntlPhone(v.whatsapp);
-    if (!wa) return notify('اكتب رقم واتساب صحيحًا مثل 01012345678', true);
     setBusy(true);
-    try { await api.registerStore({ ...v, whatsapp: wa, regionId: v.regionId || null }); notify('تم إرسال بيانات المحل للمراجعة'); onDone(); }
+    try { await api.registerStore({ ...v, regionId: v.regionId || null }); notify('تم إرسال بيانات المحل للمراجعة'); onDone(); }
     catch (x) { notify(errMsg(x), true); }
     finally { setBusy(false); }
   };
@@ -82,7 +70,6 @@ function Register({ regions, notify, onDone }: { profileId: string; regions: { i
       <form className="stack-form" onSubmit={submit}>
         <input value={v.name} maxLength={80} onChange={(e) => setV({ ...v, name: e.target.value })} placeholder="اسم المحل" required />
         <input value={v.category} maxLength={40} onChange={(e) => setV({ ...v, category: e.target.value })} placeholder="التصنيف" required />
-        <input type="tel" value={v.whatsapp} onChange={(e) => setV({ ...v, whatsapp: e.target.value })} placeholder="رقم واتساب المحل" required />
         <select value={v.regionId} onChange={(e) => setV({ ...v, regionId: e.target.value })}><option value="">اختر المنطقة</option>{regions.map((r) => <option key={r.id} value={r.id}>{r.city}</option>)}</select>
         <input value={v.address} maxLength={200} onChange={(e) => setV({ ...v, address: e.target.value })} placeholder="عنوان المحل (يظهر للمندوب)" />
         <textarea value={v.description} maxLength={500} onChange={(e) => setV({ ...v, description: e.target.value })} placeholder="وصف المحل (اختياري)" />

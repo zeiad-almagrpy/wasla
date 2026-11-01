@@ -35,6 +35,7 @@ export default function Customer({ profile, notify, tab, setTab }: ViewProps) {
 
   const add = (p: Product) => {
     if (cartShop && cartShop !== p.store_id) return notify('السلة تسمح بالشراء من محل واحد. أفرغ السلة أولًا.', true);
+    if ((cart[p.id] || 0) >= 50) return notify('الحد الأقصى 50 قطعة من المنتج الواحد.', true);
     setCart((c) => ({ ...c, [p.id]: (c[p.id] || 0) + 1 }));
     notify('تمت إضافة المنتج إلى السلة');
   };
@@ -48,7 +49,7 @@ export default function Customer({ profile, notify, tab, setTab }: ViewProps) {
     try {
       await api.createOrder(cartShop, cartItems.map((i) => ({ product_id: i.p.id, qty: i.qty })), delivery, address.trim(), delivery ? f : 0);
       setCart({}); setAddress(''); setFee(''); setTab('orders');
-      notify('تم إرسال طلبك. اضغط «تنبيه المحل عبر واتساب» ليرد المحل أسرع.');
+      notify('تم إرسال طلبك للمحل. تابع تحديث حالته من صفحة طلباتي.');
     } catch (e) { notify(errMsg(e), true); }
     finally { setBusy(false); }
   };
@@ -88,7 +89,7 @@ export default function Customer({ profile, notify, tab, setTab }: ViewProps) {
                 <>
                   <label className="field-label">عنوان التوصيل</label>
                   <input value={address} maxLength={300} onChange={(e) => setAddress(e.target.value)} placeholder="الشارع، المنطقة، علامة مميزة" />
-                  <p className="muted">اقترح أجرة التوصيل التي تراها مناسبة. المندوب سيراجعها ويرد، وتوافق أنت قبل أي استلام.</p>
+                  <p className="muted">حدد ميزانية التوصيل. سيُسند الطلب لمندوب متاح ضمنها، وتظهر لك حالة الطلب هنا.</p>
                   <label className="field-label">أجرة التوصيل المقترحة (جنيه)</label>
                   <input type="number" inputMode="decimal" min="0" max={MAX_FEE} value={fee} onChange={(e) => setFee(e.target.value)} placeholder="مثلاً 20" />
                 </>

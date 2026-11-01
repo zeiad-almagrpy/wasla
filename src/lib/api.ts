@@ -31,6 +31,11 @@ export const signOut = () => sb.auth.signOut();
 export async function getProfile(id: string) {
   return ok(await sb.from('profiles').select('*').eq('id', id).maybeSingle()) as Profile | null;
 }
+export const listNotifications = async (userId: string) =>
+  ok(await sb.from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(30)) as { id: string; title: string; body: string; is_read: boolean; created_at: string }[];
+export const markNotificationsRead = async (userId: string) => {
+  ok(await sb.from('notifications').update({ is_read: true }).eq('user_id', userId).eq('is_read', false));
+};
 
 // ---- storage
 export async function uploadImage(userId: string, file: File): Promise<string> {
@@ -51,17 +56,18 @@ export const getMyStore = async (ownerId: string) =>
   ok(await sb.from('stores').select('*').eq('owner_id', ownerId).maybeSingle()) as Store | null;
 export const listMyProducts = async (storeId: string) =>
   ok(await sb.from('products').select('*').eq('store_id', storeId).order('created_at', { ascending: false })) as Product[];
-export const registerStore = (v: { name: string; category: string; description: string; address: string; regionId: string | null; whatsapp: string }) =>
-  rpc('register_store', { p_name: v.name, p_category: v.category, p_description: v.description, p_address: v.address, p_region_id: v.regionId, p_whatsapp: v.whatsapp });
+export const registerStore = (v: { name: string; category: string; description: string; address: string; regionId: string | null }) =>
+  rpc('register_store', { p_name: v.name, p_category: v.category, p_description: v.description, p_address: v.address, p_region_id: v.regionId });
 export const addProduct = async (p: Partial<Product>) => { ok(await sb.from('products').insert(p)); };
 export const updateProduct = async (id: string, p: Partial<Product>) => { ok(await sb.from('products').update(p).eq('id', id)); };
 export const deleteProduct = async (id: string) => { ok(await sb.from('products').delete().eq('id', id)); };
 
 // ---- orders (all writes are server-side functions)
-export const listOrders = async () =>
-  ok(await sb.from('orders')
-    .select('*, order_items(*), stores(name,address,whatsapp), order_contacts(customer_name,customer_phone)')
-    .order('created_at', { ascending: false }).limit(150)) as Order[];
+export const listOrders = async (storeId?: string) => {
+  let q = sb.from('orders').select('*, order_items(*), stores(name,address), order_contacts(customer_name,customer_phone)');
+  if (storeId) q = q.eq('store_id', storeId);
+  return ok(await q.order('created_at', { ascending: false }).limit(150)) as Order[];
+};
 export const createOrder = async (storeId: string, items: { product_id: string; qty: number }[], delivery: boolean, address: string, fee: number) =>
   ok(await sb.rpc('create_order', { p_store_id: storeId, p_items: items, p_delivery: delivery, p_address: address, p_proposed_fee: fee }));
 export const merchantSetStatus = (id: string, status: string) => rpc('merchant_set_order_status', { p_order_id: id, p_status: status });
@@ -71,6 +77,8 @@ export const courierDecline = (id: string) => rpc('courier_decline_order', { p_o
 export const customerRespondFee = (id: string, accept: boolean) => rpc('customer_respond_fee', { p_order_id: id, p_accept: accept });
 export const courierPickup = (id: string) => rpc('courier_pickup_order', { p_order_id: id });
 export const courierDeliver = (id: string) => rpc('courier_deliver_order', { p_order_id: id });
+export const courierUpdateLocation = (id: string, lat: number, lng: number) =>
+  rpc('courier_update_location', { p_order_id: id, p_lat: lat, p_lng: lng });
 
 // ---- requests board / news
 export const listPosts = async () =>

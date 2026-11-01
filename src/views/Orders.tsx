@@ -1,15 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bike } from 'lucide-react';
 import * as api from '../lib/api';
 import { useQuery } from '../lib/hooks';
-import { MAX_FEE, STATUS_AR, errMsg, fmtDate, money, statusTone, waLink } from '../lib/utils';
+import { MAX_FEE, STATUS_AR, errMsg, fmtDate, money, statusTone } from '../lib/utils';
 import { Empty, Status } from '../components/ui';
 import type { Notify, Order, OrderStatus, Role } from '../lib/types';
 
 const FLOW: OrderStatus[] = ['accepted', 'preparing', 'ready'];
 
-export function OrdersPanel({ role, userId, notify, filter }: { role: Role; userId: string; notify: Notify; filter?: (o: Order) => boolean }) {
-  const q = useQuery(api.listOrders, [], 15000);
+export function OrdersPanel({ role, userId, notify, filter, storeId }: { role: Role; userId: string; notify: Notify; filter?: (o: Order) => boolean; storeId?: string }) {
+  const q = useQuery(() => api.listOrders(storeId), [storeId], 15000);
+  const seen = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (!q.data || role !== 'customer') return;
+    for (const order of q.data) {
+      const old = seen.current[order.id];
+      if (old && old !== order.status) notify(`تحديث الطلب #${order.id.slice(-6)}: ${STATUS_AR[order.status]}`);
+      seen.current[order.id] = order.status;
+    }
+  }, [q.data, role, notify]);
   if (q.error && !q.data) return <div className="notice-box">{q.error}</div>;
   if (!q.data) return <Empty title="جارٍ التحميل…" />;
   const list = filter ? q.data.filter(filter) : q.data;
@@ -38,8 +47,6 @@ function OrderCard({ o, role, userId, notify, onChanged }: { o: Order; role: Rol
   const sel = options.includes(next) ? next : o.status;
   const openForCourier = role === 'courier' && o.delivery_required && !o.courier_id && inFlow;
   const courierBlock = role === 'courier' && (openForCourier || (mine && inFlow));
-  const phone = o.order_contacts?.customer_phone;
-  const shopWa = o.stores?.whatsapp;
   const feeNow = o.fee_status === 'countered' || o.fee_status === 'accepted' ? o.courier_proposed_fee : o.proposed_delivery_fee;
 
   const sendOffer = () => {
@@ -63,10 +70,25 @@ function OrderCard({ o, role, userId, notify, onChanged }: { o: Order; role: Rol
         <strong>قيمة المنتجات: {o.subtotal} ج.م</strong>
         <button className="secondary small" onClick={() => setExpanded(!expanded)}>{expanded ? 'إخفاء التفاصيل' : 'عرض التفاصيل'}</button>
       </div>
+      {role === 'customer' && o.delivery_required && o.status !== 'cancelled' && (
+        <section className="track-box" aria-label="تتبع الطلب">
+          <b>تتبع الطلب</b>
+          <div className="track-steps">
+            {(['new','accepted','preparing','ready','with_courier','delivered'] as OrderStatus[]).map((step) => {
+              const pos = ['new','accepted','preparing','ready','with_courier','delivered'].indexOf(o.status);
+              const current = ['new','accepted','preparing','ready','with_courier','delivered'].indexOf(step);
+              return <span key={step} className={current <= pos ? 'done' : ''}>{STATUS_AR[step]}</span>;
+            })}
+          </div>
+          {o.status === 'with_courier' && (o.courier_lat != null && o.courier_lng != null
+            ? <div><p className="muted">موقع المندوب يتحدث تلقائيًا أثناء التوصيل.</p><iframe className="tracking-map" title="موقع مندوب التوصيل" loading="lazy" src={`https://www.openstreetmap.org/export/embed.html?bbox=${o.courier_lng - 0.01}%2C${o.courier_lat - 0.01}%2C${o.courier_lng + 0.01}%2C${o.courier_lat + 0.01}&layer=mapnik&marker=${o.courier_lat}%2C${o.courier_lng}`} /></div>
+            : <p className="muted">المندوب في الطريق. جارٍ انتظار أول تحديث للموقع.</p>)}
+        </section>
+      )}
       {expanded && (
         <div className="order-details">
           <p><b>{o.delivery_required ? 'العنوان:' : 'الاستلام:'}</b> {o.address_snapshot}</p>
-          {o.order_contacts && <p><b>هاتف المشتري:</b> <a href={waLink(o.order_contacts.customer_phone, `مرحبًا ${o.order_contacts.customer_name}، بخصوص طلبك رقم ${short} على وصلة.`)} target="_blank" rel="noopener noreferrer">{o.order_contacts.customer_phone}</a></p>}
+          {o.order_contacts && <p><b>هاتف المشتري:</b> {o.order_contacts.customer_phone}</p>}
           {o.delivery_required && <p><b>أجرة التوصيل:</b> {feeNow} ج.م {o.fee_status === 'accepted' ? '(متفق عليها)' : o.fee_status === 'countered' ? '(بانتظار موافقة المشتري)' : '(مقترحة)'}</p>}
           <p><b>الإجمالي:</b> {o.total} ج.م · الدفع نقدًا عند الاستلام</p>
         </div>
@@ -92,12 +114,12 @@ function OrderCard({ o, role, userId, notify, onChanged }: { o: Order; role: Rol
       {courierBlock && (
         <div className="courier-offer">
           <h4><Bike size={17} /> مراجعة مهمة التوصيل</h4>
-          <p>العنوان: <b>{o.address_snapshot}</b></p>
+              <p>عنوان التسليم: <b>{o.address_snapshot}</b></p>
           {o.stores?.address && <p>عنوان المحل: <b>{o.stores.address}</b></p>}
           <p>أجرة المشتري المقترحة: <b>{o.proposed_delivery_fee} ج.م</b></p>
           {o.fee_status === 'pending' && (
             <>
-              <button className="primary full" disabled={busy} onClick={() => run(() => api.courierOffer(o.id, o.proposed_delivery_fee, 'أوافق على أجرة التوصيل المقترحة.'), 'وافقت على الأجرة. ينتظر الطلب موافقة المشتري.')}>أقبل الطلب بالأجرة المقترحة ({o.proposed_delivery_fee} ج.م)</button>
+              <button className="primary full" disabled={busy} onClick={() => run(() => api.courierOffer(o.id, o.proposed_delivery_fee, 'أوافق على أجرة التوصيل المقترحة.'), 'تم إسناد المهمة لك. تابع تجهيز المحل ثم استلم الطلب.')}>أقبل المهمة ({o.proposed_delivery_fee} ج.م)</button>
               <label className="field-label">أو اقترح أجرة مختلفة (جنيه)</label>
               <input type="number" inputMode="decimal" min="0" max={MAX_FEE} value={counter} onChange={(e) => setCounter(e.target.value)} />
               <label className="field-label">رد للمشتري (اختياري)</label>
@@ -135,7 +157,6 @@ function OrderCard({ o, role, userId, notify, onChanged }: { o: Order; role: Rol
       )}
       {role === 'customer' && o.status === 'new' && (
         <div className="action-row">
-          {shopWa && <a className="primary wa-link" target="_blank" rel="noopener noreferrer" href={waLink(shopWa, `طلب جديد من وصلة رقم ${short}\nالمنتجات: ${o.order_items.map((i) => `${i.product_name_snapshot} × ${i.quantity}`).join('، ')}\nالإجمالي: ${o.total} جنيه\n${o.delivery_required ? `العنوان: ${o.address_snapshot}` : 'استلام من المحل'}\nيرجى مراجعة الطلب وقبوله من لوحة وصلة.`)}>تنبيه المحل عبر واتساب</a>}
           <button className="secondary" disabled={busy} onClick={() => { if (confirm('إلغاء الطلب؟')) run(() => api.customerCancel(o.id), 'تم إلغاء الطلب'); }}>إلغاء الطلب</button>
         </div>
       )}

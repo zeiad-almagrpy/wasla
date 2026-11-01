@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ImagePlus, Megaphone } from 'lucide-react';
 import * as api from '../lib/api';
 import { useQuery } from '../lib/hooks';
-import { errMsg, fmtDate, toIntlPhone } from '../lib/utils';
+import { errMsg, fmtDate } from '../lib/utils';
 import { Empty, Stat, Status } from '../components/ui';
 import { OrdersPanel } from './Orders';
 import { Requests } from './Requests';
@@ -16,9 +16,7 @@ export default function Admin({ profile, notify, tab }: ViewProps) {
   const orders = useQuery(api.listOrders, [], 30000);
   const regions = useQuery(api.listRegions, []);
   const news = useQuery(api.listAnnouncements, []);
-  const support = useQuery(() => api.getSetting('support_whatsapp'), []);
   const [rg, setRg] = useState({ city: '', governorate: '' });
-  const [sp, setSp] = useState<string | null>(null);
   const [ad, setAd] = useState({ title: '', body: '' });
   const [file, setFile] = useState<File | null>(null);
 
@@ -101,18 +99,6 @@ export default function Admin({ profile, notify, tab }: ViewProps) {
       </>
     );
   }
-  if (tab === 'settings') {
-    const val = sp ?? support.data ?? '';
-    return (
-      <div className="panel"><h3>إعدادات التواصل</h3>
-        <label className="field-label">رقم واتساب الدعم</label>
-        <form className="form-row" onSubmit={(e) => { e.preventDefault(); const wa = toIntlPhone(val); if (val.trim() && !wa) return notify('رقم غير صحيح. مثال: 01012345678', true); act(() => api.setSetting('support_whatsapp', wa), support.reload, 'تم حفظ رقم الدعم'); }}>
-          <input value={val} onChange={(e) => setSp(e.target.value)} placeholder="01xxxxxxxxx" /><button className="primary">حفظ الإعدادات</button>
-        </form>
-      </div>
-    );
-  }
-
   const o = orders.data || [];
   return (
     <>

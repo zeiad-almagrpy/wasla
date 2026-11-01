@@ -10,7 +10,7 @@ export type Region = { id: string; city: string; governorate: string; is_active:
 export type StoreStatus = 'pending' | 'active' | 'paused' | 'rejected';
 export type Store = {
   id: string; owner_id: string; name: string; description: string | null; category: string; address: string | null;
-  region_id: string | null; status: StoreStatus; trial_started_at: string | null; whatsapp: string; created_at: string;
+  region_id: string | null; status: StoreStatus; trial_started_at: string | null; created_at: string;
   profiles?: { full_name: string; phone: string | null } | null;
 };
 export type Product = {
@@ -27,7 +27,8 @@ export type Order = {
   proposed_delivery_fee: number; courier_proposed_fee: number | null; courier_reply: string | null;
   fee_status: 'pending' | 'countered' | 'accepted' | 'declined'; courier_id: string | null; delivery_required: boolean;
   delivery_fee: number; total: number; created_at: string; order_items: OrderItem[];
-  stores: { name: string; address: string | null; whatsapp: string } | null;
+  courier_lat?: number | null; courier_lng?: number | null;
+  stores: { name: string; address: string | null } | null;
   order_contacts: { customer_name: string; customer_phone: string } | null;
 };
 export type Comment = { id: string; user_id: string; author_name: string; author_role: string; body: string; created_at: string };

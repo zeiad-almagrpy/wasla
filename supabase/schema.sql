@@ -34,7 +34,6 @@ create table if not exists public.stores (
   status public.store_status not null default 'pending',
   trial_started_at timestamptz, subscription_status text not null default 'trial',
   monthly_price numeric(10,2) check (monthly_price is null or monthly_price >= 0),
-  whatsapp text not null check (whatsapp ~ '^[0-9]{10,15}$'),
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create table if not exists public.products (
@@ -59,12 +58,16 @@ create table if not exists public.orders (
   courier_reply text check (courier_reply is null or char_length(courier_reply) <= 300),
   fee_status text not null default 'pending' check (fee_status in ('pending','countered','accepted','declined')),
   courier_id uuid references public.profiles(id),
+  courier_lat double precision check (courier_lat between -90 and 90),
+  courier_lng double precision check (courier_lng between -180 and 180),
   delivery_required boolean not null default true,
   delivery_fee numeric(10,2) not null default 0 check (delivery_fee >= 0),
   total numeric(10,2) not null check (total >= 0),
   payment_method text not null default 'cash',
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+alter table public.orders add column if not exists courier_lat double precision;
+alter table public.orders add column if not exists courier_lng double precision;
 create table if not exists public.order_items (
   id uuid primary key default gen_random_uuid(),
   order_id uuid not null references public.orders(id) on delete cascade,
@@ -119,6 +122,32 @@ create table if not exists public.admin_audit_log (
   action text not null, target_type text, target_id text, details jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  title text not null, body text not null, order_id uuid references public.orders(id) on delete cascade,
+  is_read boolean not null default false, created_at timestamptz not null default now()
+);
+create index if not exists idx_notifications_user on public.notifications(user_id, created_at desc);
+create or replace function public.notify_order_status_change() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_title text; v_body text;
+begin
+  if new.status is distinct from old.status then
+    v_title := 'تحديث الطلب';
+    v_body := 'حالة الطلب #' || right(new.id::text, 6) || ' أصبحت: ' || new.status::text;
+    insert into public.notifications(user_id,title,body,order_id) values (new.customer_id,v_title,v_body,new.id);
+    insert into public.notifications(user_id,title,body,order_id)
+      select owner_id,v_title,v_body,new.id from public.stores where id=new.store_id and owner_id<>new.customer_id;
+    if new.courier_id is not null and new.courier_id<>new.customer_id then
+      insert into public.notifications(user_id,title,body,order_id) values (new.courier_id,v_title,v_body,new.id);
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_notify_order_status on public.orders;
+create trigger trg_notify_order_status after update of status on public.orders
+for each row execute function public.notify_order_status_change();
 
 create index if not exists idx_products_store on public.products(store_id);
 create index if not exists idx_orders_customer on public.orders(customer_id);
@@ -139,7 +168,8 @@ drop trigger if exists trg_promote_store_owner on public.stores;
 drop function if exists public.promote_store_owner();
 
 insert into public.regions(city, governorate) values ('مطوبس','كفر الشيخ') on conflict do nothing;
-insert into public.platform_settings(key, value) values ('support_whatsapp','') on conflict do nothing;
+alter table public.stores drop column if exists whatsapp;
+delete from public.platform_settings where key = 'support_whatsapp';
 
 alter table public.profiles enable row level security;
 alter table public.regions enable row level security;
@@ -154,6 +184,7 @@ alter table public.request_comments enable row level security;
 alter table public.announcements enable row level security;
 alter table public.platform_settings enable row level security;
 alter table public.admin_audit_log enable row level security;
+alter table public.notifications enable row level security;
 
 -- ===== helpers =====
 create or replace function public.is_admin() returns boolean language sql stable security definer set search_path = public as $$
@@ -291,6 +322,7 @@ drop policy if exists "orders courier read" on public.orders;
 create policy "orders courier read" on public.orders for select to authenticated using (
   courier_id = auth.uid()
   or (public.has_role('courier') and delivery_required and courier_id is null and status in ('accepted','preparing','ready')
+      and not exists(select 1 from public.orders active where active.courier_id = auth.uid() and active.status not in ('delivered','cancelled'))
       and not exists(select 1 from public.order_declines d where d.order_id = id and d.courier_id = auth.uid())));
 drop policy if exists "orders admin read" on public.orders;
 create policy "orders admin read" on public.orders for select to authenticated using (public.is_admin());
@@ -330,6 +362,10 @@ drop policy if exists "settings admin write" on public.platform_settings;
 create policy "settings admin write" on public.platform_settings for all to authenticated using (public.is_admin()) with check (public.is_admin());
 drop policy if exists "audit admin read" on public.admin_audit_log;
 create policy "audit admin read" on public.admin_audit_log for select to authenticated using (public.is_admin());
+drop policy if exists "notifications own read" on public.notifications;
+create policy "notifications own read" on public.notifications for select to authenticated using (user_id = auth.uid());
+drop policy if exists "notifications own update" on public.notifications;
+create policy "notifications own update" on public.notifications for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- ===== storage: one public bucket, 1 MB per file, images only, each user writes only inside a folder named after their id =====
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -345,15 +381,16 @@ create policy "images own delete" on storage.objects for delete to authenticated
   using (bucket_id = 'images' and (storage.foldername(name))[1] = auth.uid()::text);
 
 -- ===== write functions =====
-create or replace function public.register_store(p_name text, p_category text, p_description text, p_address text, p_region_id uuid, p_whatsapp text)
+drop function if exists public.register_store(text,text,text,text,uuid,text);
+create or replace function public.register_store(p_name text, p_category text, p_description text, p_address text, p_region_id uuid)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare v_me public.profiles; v_id uuid;
 begin
   select * into v_me from public.profiles where id = auth.uid();
   if not found or v_me.is_blocked or v_me.role not in ('customer','merchant') then raise exception 'not allowed'; end if;
   if exists(select 1 from public.stores where owner_id = auth.uid()) then raise exception 'store already registered'; end if;
-  insert into public.stores(owner_id, name, category, description, address, region_id, whatsapp)
-  values (auth.uid(), btrim(p_name), btrim(p_category), nullif(btrim(coalesce(p_description,'')),''), nullif(btrim(coalesce(p_address,'')),''), p_region_id, p_whatsapp)
+  insert into public.stores(owner_id, name, category, description, address, region_id)
+  values (auth.uid(), btrim(p_name), btrim(p_category), nullif(btrim(coalesce(p_description,'')),''), nullif(btrim(coalesce(p_address,'')),''), p_region_id)
   returning id into v_id;
   perform set_config('wesla.bypass', '1', true);
   update public.profiles set role = 'merchant' where id = auth.uid() and role = 'customer';
@@ -422,7 +459,8 @@ create or replace function public.courier_offer_fee(p_order_id uuid, p_fee numer
 returns void language plpgsql security definer set search_path = public as $$
 declare o public.orders; v_fee numeric(10,2);
 begin
-  if not public.has_role('courier') then raise exception 'not allowed'; end if;
+  if not public.has_role('courier') or public.is_blocked() then raise exception 'not allowed'; end if;
+  if exists(select 1 from public.orders where courier_id = auth.uid() and status not in ('delivered','cancelled')) then raise exception 'active delivery exists'; end if;
   if p_fee is null or p_fee < 0 or p_fee > 500 then raise exception 'invalid fee'; end if;
   v_fee := round(p_fee, 2);
   select * into o from public.orders where id = p_order_id for update;
@@ -432,14 +470,15 @@ begin
     raise exception 'order not available';
   end if;
   update public.orders set courier_id = auth.uid(), courier_proposed_fee = v_fee, courier_reply = left(coalesce(p_reply, ''), 300),
-         fee_status = 'countered', delivery_fee = v_fee, total = o.subtotal + v_fee where id = o.id;
+         fee_status = case when v_fee = o.proposed_delivery_fee then 'accepted' else 'countered' end,
+         delivery_fee = v_fee, total = o.subtotal + v_fee where id = o.id;
 end $$;
 
 create or replace function public.courier_decline_order(p_order_id uuid)
 returns void language plpgsql security definer set search_path = public as $$
 declare o public.orders;
 begin
-  if not public.has_role('courier') then raise exception 'not allowed'; end if;
+  if not public.has_role('courier') or public.is_blocked() then raise exception 'not allowed'; end if;
   select * into o from public.orders where id = p_order_id for update;
   if not found or not o.delivery_required or o.status not in ('accepted','preparing','ready')
      or (o.courier_id is not null and o.courier_id <> auth.uid()) then
@@ -456,6 +495,7 @@ create or replace function public.customer_respond_fee(p_order_id uuid, p_accept
 returns void language plpgsql security definer set search_path = public as $$
 declare o public.orders;
 begin
+  if public.is_blocked() then raise exception 'not allowed'; end if;
   select * into o from public.orders where id = p_order_id and customer_id = auth.uid() for update;
   if not found then raise exception 'order not found'; end if;
   if o.fee_status <> 'countered' or o.courier_id is null or o.status in ('cancelled','delivered','with_courier') then raise exception 'invalid transition'; end if;
@@ -472,7 +512,7 @@ create or replace function public.courier_pickup_order(p_order_id uuid)
 returns void language plpgsql security definer set search_path = public as $$
 declare o public.orders;
 begin
-  if not public.has_role('courier') then raise exception 'not allowed'; end if;
+  if not public.has_role('courier') or public.is_blocked() then raise exception 'not allowed'; end if;
   select * into o from public.orders where id = p_order_id and courier_id = auth.uid() for update;
   if not found then raise exception 'order not found'; end if;
   if o.fee_status <> 'accepted' or o.status <> 'ready' then raise exception 'invalid transition'; end if;
@@ -483,11 +523,21 @@ create or replace function public.courier_deliver_order(p_order_id uuid)
 returns void language plpgsql security definer set search_path = public as $$
 declare o public.orders;
 begin
-  if not public.has_role('courier') then raise exception 'not allowed'; end if;
+  if not public.has_role('courier') or public.is_blocked() then raise exception 'not allowed'; end if;
   select * into o from public.orders where id = p_order_id and courier_id = auth.uid() for update;
   if not found then raise exception 'order not found'; end if;
   if o.status <> 'with_courier' then raise exception 'invalid transition'; end if;
-  update public.orders set status = 'delivered' where id = o.id;
+  update public.orders set status = 'delivered', courier_lat = null, courier_lng = null where id = o.id;
+end $$;
+
+create or replace function public.courier_update_location(p_order_id uuid, p_lat double precision, p_lng double precision)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.has_role('courier') or public.is_blocked() then raise exception 'not allowed'; end if;
+  if p_lat is null or p_lng is null or p_lat not between -90 and 90 or p_lng not between -180 and 180 then raise exception 'invalid location'; end if;
+  update public.orders set courier_lat = p_lat, courier_lng = p_lng
+   where id = p_order_id and courier_id = auth.uid() and status = 'with_courier';
+  if not found then raise exception 'order not available'; end if;
 end $$;
 
 create or replace function public.admin_set_store_status(p_store_id uuid, p_status public.store_status)
@@ -525,7 +575,7 @@ end $$;
 -- functions are callable by signed-in users only
 do $$ declare f text; begin
   foreach f in array array[
-    'register_store(text,text,text,text,uuid,text)',
+    'register_store(text,text,text,text,uuid)',
     'create_order(uuid,jsonb,boolean,text,numeric)',
     'merchant_set_order_status(uuid,public.order_status)',
     'customer_cancel_order(uuid)',
@@ -534,6 +584,7 @@ do $$ declare f text; begin
     'customer_respond_fee(uuid,boolean)',
     'courier_pickup_order(uuid)',
     'courier_deliver_order(uuid)',
+    'courier_update_location(uuid,double precision,double precision)',
     'admin_set_store_status(uuid,public.store_status)',
     'admin_set_role(uuid,public.app_role)',
     'admin_set_blocked(uuid,boolean)'] loop

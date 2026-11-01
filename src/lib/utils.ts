@@ -15,7 +15,6 @@ export const toIntlPhone = (raw: string) => {
   return /^\d{10,15}$/.test(d) ? d : '';
 };
 export const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-export const waLink = (phone: string, text: string) => `https://wa.me/${toIntlPhone(phone)}?text=${encodeURIComponent(text)}`;
 
 export const STATUS_AR: Record<OrderStatus, string> = {
   new: 'جديد', accepted: 'مقبول', preparing: 'قيد التجهيز', ready: 'جاهز للاستلام',

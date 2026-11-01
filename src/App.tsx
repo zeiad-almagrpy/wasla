@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { LogOut, Menu, X } from 'lucide-react';
+import { Bell, LogOut, Menu, X } from 'lucide-react';
 import { configured, sb } from './lib/supabase';
 import * as api from './lib/api';
 import { useQuery } from './lib/hooks';
@@ -15,7 +15,7 @@ import type { Profile } from './lib/types';
 type View = 'customer' | 'merchant' | 'courier' | 'courier_pending' | 'admin';
 const NAV: Record<View, [string, string][]> = {
   customer: [['home', 'استكشف المحلات'], ['orders', 'طلباتي'], ['requests', 'اطلب اللي مش لاقيه'], ['news', 'أخبار وصلة'], ['cart', 'السلة']],
-  merchant: [['dashboard', 'نظرة عامة'], ['products', 'المنتجات'], ['orders', 'الطلبات'], ['requests', 'طلبات المشترين'], ['subscription', 'الاشتراك'], ['support', 'التواصل مع وصلة']],
+  merchant: [['dashboard', 'نظرة عامة'], ['products', 'المنتجات'], ['orders', 'الطلبات'], ['requests', 'طلبات المشترين'], ['subscription', 'الاشتراك']],
   courier: [['tasks', 'مهام التوصيل'], ['history', 'سجل التوصيل']],
   courier_pending: [],
   admin: [['dashboard', 'نظرة عامة'], ['shops', 'إدارة المحلات'], ['orders', 'كل الطلبات'], ['users', 'المستخدمون'], ['newsAdmin', 'المنشورات'], ['regions', 'المناطق'], ['settings', 'إعدادات المنصة']],
@@ -43,8 +43,10 @@ export default function App() {
 
 function Shell({ userId }: { userId: string }) {
   const prof = useQuery(() => api.getProfile(userId), [userId], 60000);
+  const notifications = useQuery(() => api.listNotifications(userId), [userId], 20000);
   const [tab, setTab] = useState('');
   const [menu, setMenu] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [notice, setNotice] = useState<{ text: string; bad: boolean } | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const notify = (text: string, bad = false) => {
@@ -78,8 +80,10 @@ function Shell({ userId }: { userId: string }) {
         {nav.length > 0 && <button className="mobile-menu icon-btn" aria-label="القائمة" onClick={() => setMenu(!menu)}>{menu ? <X /> : <Menu />}</button>}
         <div className="brand"><img src="/public-logo.png" alt="وصلة" /><div><b>وصلة</b><small>وصلة.. بتجمعنا</small></div></div>
         <div className="top-actions"><span className="role-pill">{ROLE_AR[view]}</span><span className="user-name">{profile.full_name}</span>
+          <button className="icon-btn notification-button" title="الإشعارات" aria-label="الإشعارات" onClick={async () => { setShowNotifications(!showNotifications); if (!showNotifications) { await api.markNotificationsRead(userId); await notifications.reload(); } }}><Bell size={18} />{(notifications.data || []).some((n) => !n.is_read) && <i />}</button>
           <button className="icon-btn" title="خروج" aria-label="خروج" onClick={() => api.signOut()}><LogOut size={18} /></button></div>
       </header>
+      {showNotifications && <section className="notification-panel"><header><b>الإشعارات</b><button className="secondary small" onClick={() => setShowNotifications(false)}>إغلاق</button></header>{(notifications.data || []).length ? (notifications.data || []).map((n) => <article key={n.id}><b>{n.title}</b><p>{n.body}</p><small>{new Date(n.created_at).toLocaleString('ar-EG')}</small></article>) : <p className="muted">لا توجد إشعارات حاليًا.</p>}</section>}
       <div className="layout">
         {nav.length > 0 && (
           <aside className={`sidebar ${menu ? 'open' : ''}`}>
