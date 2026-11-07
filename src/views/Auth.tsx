@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import * as api from '../lib/api';
 import { errMsg, isEmail, toIntlPhone } from '../lib/utils';
+import { Captcha, TURNSTILE_KEY } from '../components/Captcha';
 
 type Kind = 'customer' | 'merchant' | 'courier';
 const KINDS: [Kind, string, string][] = [
@@ -20,17 +21,20 @@ export default function Auth() {
   const [err, setErr] = useState('');
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
+  const [captcha, setCaptcha] = useState('');
+  const [captchaRound, setCaptchaRound] = useState(0);
 
   const submit = async (e: { preventDefault(): void }) => {
     e.preventDefault();
     setErr(''); setInfo('');
     const mail = email.trim().toLowerCase();
     if (!isEmail(mail)) return setErr('اكتب بريدًا إلكترونيًا صحيحًا');
+    if (TURNSTILE_KEY && !captcha) return setErr('أكمل التحقق الأمني أولًا');
     if (mode === 'forgot') {
       setBusy(true);
-      try { await api.resetPassword(mail); setInfo('لو البريد مسجل عندنا هيوصلك رابط لتغيير كلمة المرور. راجع الرسائل غير المرغوبة (Spam) أيضًا.'); }
+      try { await api.resetPassword(mail, captcha || undefined); setInfo('لو البريد مسجل عندنا هيوصلك رابط لتغيير كلمة المرور. راجع الرسائل غير المرغوبة (Spam) أيضًا.'); }
       catch (x) { setErr(errMsg(x)); }
-      finally { setBusy(false); }
+      finally { setBusy(false); setCaptchaRound((n) => n + 1); }
       return;
     }
     if (password.length < 8) return setErr('كلمة المرور 8 أحرف على الأقل');
@@ -42,20 +46,19 @@ export default function Auth() {
     setBusy(true);
     try {
       if (mode === 'up') {
-        const result = await api.signUp(name.trim(), phone, mail, password, kind);
+        const result = await api.signUp(name.trim(), phone, mail, password, kind, captcha || undefined);
         if (!result.confirmed) setInfo('أنشأنا حسابك. افتح رابط التفعيل الذي أرسلناه لبريدك؛ بعد التفعيل سيعود بك للموقع لتسجيل الدخول.');
       }
-      else await api.signIn(mail, password);
+      else await api.signIn(mail, password, captcha || undefined);
     } catch (x) { setErr(errMsg(x)); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setCaptchaRound((n) => n + 1); }
   };
 
   return (
     <main className="welcome">
       <form className="welcome-card" onSubmit={submit}>
-        <img className="logo" src="/public-logo.png" alt="وصلة" />
-        <p className="eyebrow">أهلاً بيك في وصلة</p>
-        <h1>وصلة.. بتجمعنا</h1>
+        <img className="logo" src="/logo-full.png" alt="وصلة.. بتجمعنا" />
+        <h1>أهلاً بيك في وصلة</h1>
         <p className="muted">منصة بتجمع المشترين والمحلات ومندوبي التوصيل.</p>
         <div className="seg">
           <button type="button" className={mode === 'in' ? 'primary' : 'secondary'} onClick={() => setMode('in')}>تسجيل الدخول</button>
@@ -77,6 +80,7 @@ export default function Auth() {
             <label className="agree"><input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /> أوافق على <a href="/terms.html" target="_blank" rel="noreferrer">شروط الاستخدام</a> و<a href="/privacy.html" target="_blank" rel="noreferrer">سياسة الخصوصية</a></label>
           </>
         )}
+        <Captcha onToken={setCaptcha} resetKey={captchaRound} />
         {err && <div className="toast error">{err}</div>}
         {info && <div className="toast">{info}</div>}
         <button className="primary full" disabled={busy} style={{ marginTop: 16 }}>{busy ? 'لحظة…' : mode === 'up' ? 'إنشاء الحساب' : mode === 'forgot' ? 'إرسال رابط الاستعادة' : 'دخول'}</button>

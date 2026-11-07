@@ -1,3 +1,4 @@
+-- Base schema (v1.0). Apply supabase/migrations/*.sql AFTER this, in order. Re-running this file wipes all RLS policies and restores v1.0 functions: re-apply the migrations if you do.
 -- WESLA database v1.0 (fresh Supabase project). Run the whole file in the SQL Editor of a TEST project first.
 -- Security model: the browser can READ what RLS allows, but every WRITE to orders / stores status / roles goes through
 -- the security-definer functions at the bottom. Prices, totals and order states are decided on the server only.
